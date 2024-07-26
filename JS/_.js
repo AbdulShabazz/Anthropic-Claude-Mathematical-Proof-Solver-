@@ -63,7 +63,7 @@ try {
             }
         }
         return ret;
-    }
+    } // Object.prototype._includes
     
     Object.prototype._replace = function (from, to) {
         let ret = false;
@@ -90,9 +90,14 @@ try {
                 ++j;
             }
         }
-        self = self.join (' ').split (/\s+/).filter (u => u).map ((s,index,me) => s.trim ());
+        self = self
+            .join (' ')
+                .split (/\s+/)
+                    .filter (u => u)
+                        .map ((s,index,me) => s
+                            .trim ());
         return self;
-    }
+    } // end Object.prototype._replace
     
     function tryReduce(expression, axioms) {
         return applyRule(expression, axioms, (left, right) => {
