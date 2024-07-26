@@ -63,7 +63,7 @@ try {
             }
         }
         return ret;
-    } // Object.prototype._includes
+    } // end Object.prototype._includes
     
     Object.prototype._replace = function (from, to) {
         let ret = false;
@@ -129,7 +129,7 @@ try {
             }
         }
         return null;
-    } // applyRule
+    } // end applyRule
     
 } catch (e) {
     output.value = JSON.stringify (e, ' ', 2);
