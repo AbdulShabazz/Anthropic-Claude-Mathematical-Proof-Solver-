@@ -1,171 +1,53 @@
 
-/*
-
-    TITLE:
-    Experimental-Parser.js
-
-    AUTHOR: Seagat2011
-    http://eterna.cmu.edu/web/player/90270/
-    http://fold.it/port/user/1992490
-
-    VERSION:
-    Major.Minor.Release.Build
-    0.0.1.0
-
-    DESCRIPTION:
-    claude AI based Experimental Prover
-
-    UPDATES
-    N/A
-
-    TODOS
-    More Flexable axiom parsing via Map builtin objects
-    Rewrite queue for more variance and (solution space) coverage
-    Add Multi-thread support via inline Web Workers
-    Add async/await and Promise.All support
-
-    STYLEGUIDE:
-    http://google-styleguide.googlecode.com/svn/trunk/javascriptguide.xml
-
-    EXAMPLE:
-    const ProofStatementA = [
-        // Axioms and Lemmas
-        "1 + 1 = 2",
-        "2 + 2 = 4",
-        // Theorem to prove
-        "1 + 2 + 1 = 4",
-    ];
-
-    SCRIPT TYPE:
-    Euclid Tool
-
-*/
-
 try {
 
-    function solveProblem () {
-        let rewriteQueue = [];
-        const input = document.getElementById ('input').value;
-        const output = document.getElementById ('output');
-        const { axioms, proofStatement } = parseInput (input);
-        const proof = generateProof (axioms, proofStatement, rewriteQueue);
-        output.value = proof;
-    }
+    function solveProblem() {
+        const { axioms, proofStatement } = parseInput(document.getElementById('input').value);
+        document.getElementById('output').value = generateProof(axioms, proofStatement);
+    } // end solveProblem
     
-    function parseInput (input) {
-        const lines = input.split ('\n').map (line => line.trim ()).filter (line => line && !line.startsWith ('//'));
-        const axioms = [];
-        let proofStatement = '';
-        const isProof = lines.length-1;
-        lines.forEach ((line, indexZ, thisArray) => {
-            if (indexZ != isProof) {
-                line = line.split (/[~<]?=+[>]?/g).map (s => s.trim ());
-                const _lhs = line [0].split (/\s+/g).map (s => s.trim ());
-                const _rhs = line [1].split (/\s+/g).map (s => s.trim ());
-                axioms.push ([
-                    _lhs.length >= _rhs.length ? _lhs : _rhs,
-                    _lhs.length >= _rhs.length ? _rhs : _lhs,
-                ]);
-            } else {
-                proofStatement = line;
-            }
-        });
-        return { axioms, proofStatement };
-    }
+    function parseInput(input) {
+        const lines = input.split('\n').filter(line => line.trim() && !line.startsWith('//'));
+        return {
+            axioms: lines.slice(0, -1).map(line => line.split(/[~<]?=+[>]?/g).map(s => s.trim().split(/\s+/))),
+            proofStatement: lines[lines.length - 1]
+        };
+    } // end parseInput
     
-    function generateProof (axioms, proofStatement, rewriteQueue) {
-        let proof;
-        let [lhs, rhs] = proofStatement.split (/[~<]?=+[>]?/g).map (s => s.trim ());
-    
-        if (lhs === rhs)
-            return proof + `\nQ.E.D.`;
-    
-        lhs = lhs.split (/\s+/).map (s => s.trim ());
-        rhs = rhs.split (/\s+/).map (s => s.trim ());
-    
+    function generateProof(axioms, proofStatement) {
+        let [lhs, rhs] = proofStatement.split(/[~<]?=+[>]?/g).map(s => s.trim().split(/\s+/));
         let steps = [];
-        let currentLhs;
-        let currentRhs;
+        let currentLhs = lhs, currentRhs = rhs;
     
-        currentLhs = lhs;
-        currentRhs = rhs;
+        const applyRules = (side, action, current, other) => {
+            const rule = action === 'reduce' ? tryReduce : tryExpand;
+            let changed;
+            do {
+                changed = rule(current, axioms);
+                if (changed) {
+                    steps.push({ side, action, result: [...changed.result], axiom: changed.axiom, other: [...other] });
+                    current = changed.result;
+                }
+            } while (changed && current.join(' ') != other.join(' '));
+            return current;
+        };
     
-        // Try to reduce RHS first
-        while (currentLhs.join (' ') !== currentRhs.join (' ')) {
-            const rhsReduction = tryReduce (currentRhs, axioms);
-            if (rhsReduction) {
-                steps.push ({ side: 'rhs', action: 'reduce', result: [...rhsReduction.result], axiom: rhsReduction.axiom, other: [...currentLhs] });
-                currentRhs = rhsReduction.result;
-            } else {
-                break;
-            }
-        }
-    
-        // If LHS and RHS are not equal, try reducing LHS
-        while (currentLhs.join (' ') !== currentRhs.join (' ')) {
-            const lhsReduction = tryReduce (currentLhs, axioms);
-            if (lhsReduction) {
-                steps.push ({ side: 'lhs', action: 'reduce', result: [...lhsReduction.result], axiom: lhsReduction.axiom, other: [...currentRhs] });
-                currentLhs = lhsReduction.result;
-                if (currentLhs === currentRhs) break;
-            } else {
-                break;
-            }
-        }
-    
-        if (currentLhs.join (' ') !== currentRhs.join (' ')) {
-            currentLhs = lhs;
-            currentRhs = rhs;
+        currentRhs = applyRules('rhs', 'reduce', rhs, lhs);
+        currentLhs = applyRules('lhs', 'reduce', lhs, rhs);
+        
+        if (currentLhs.join(' ') != currentRhs.join(' ')) {
             steps = [];
+            currentRhs = applyRules('rhs', 'expand', rhs, lhs);
+            currentLhs = applyRules('lhs', 'expand', lhs, rhs);
         }
     
-        // Then expand RHS
-        while (currentLhs.join (' ') !== currentRhs.join (' ')) {
-            const rhsReduction = tryExpand (currentRhs, axioms);
-            if (rhsReduction) {
-                steps.push ({ side: 'rhs', action: 'expand', result: [...rhsReduction.result], axiom: rhsReduction.axiom, other: [...currentLhs] });
-                currentRhs = rhsReduction.result;
-            } else {
-                break;
-            }
-        }
-    
-        // Then expand LHS
-        while (currentLhs.join (' ') !== currentRhs.join (' ')) {
-            const lhsExpansion = tryExpand (currentLhs, axioms);
-            if (lhsExpansion) {
-                steps.push ({ side: 'lhs', action: 'expand', result: [...lhsExpansion.result], axiom: lhsExpansion.axiom, other: [...currentRhs] });
-                currentLhs = lhsExpansion.result;
-            } else {
-                break;
-            }
-        }
-    
-        const ProofFound = (currentLhs.join (' ') == currentRhs.join (' '));
-        const QED = (() => {
-            let ret = '';
-            if (ProofFound)
-                ret = '\nQ.E.D.'
-           return ret;
-        })();
-    
-        proof = `${ProofFound ? 'Proof' : 'partial-proof'} found!\n\n${proofStatement}, (root)\n`;
-    
-        for (const step of steps) {
-            switch (step.side) {
-                case 'lhs':
-                proof += `${ step.result.join (' ') } = ${ step.other.join (' ') }, (${ step.side } ${ step.action }) via ${ step.axiom }\n`;
-                break;
-    
-                case 'rhs':
-                proof += `${ step.other.join (' ') } = ${ step.result.join (' ') }, (${ step.side } ${ step.action }) via ${ step.axiom }\n`;
-                break;
-            }
-        }
-    
-        proof += QED;
-        return proof;
-    }
+        const proofFound = currentLhs.join(' ') === currentRhs.join(' ');
+        let proof = `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n`;
+        steps.forEach(step => {
+            proof += `${step.side === 'lhs' ? step.result.join(' ') : step.other.join(' ')} = ${step.side === 'lhs' ? step.other.join(' ') : step.result.join(' ')}, (${step.side} ${step.action}) via ${step.axiom}\n`;
+        });
+        return proof + (proofFound ? '\nQ.E.D.' : '');
+    } // end generateProof
     
     Object.prototype._includes = function (indir) {
         let ret = false;
@@ -212,43 +94,49 @@ try {
         return self;
     }
     
-    function tryReduce (expression, axioms) {
+    function tryReduce(expression, axioms) {
+        return applyRule(expression, axioms, (left, right) => {
+                let ret;
+                expression._includes(left) && (ret = 'tryReduce');
+                return ret;
+            });
+    } // end tryReduce
+    
+    function tryExpand(expression, axioms) {
+        return applyRule(expression, axioms, (left, right) => {
+                let ret;
+                expression._includes(right) && (ret = 'tryExpand');
+                return ret;
+            });
+    } // end tryExpand
+    
+    function applyRule(expression, axioms, condition) {
         for (let i = 0; i < axioms.length; i++) {
-            const [left, right] = axioms [i];
-            if (expression._includes (left)) {
+            const [left, right] = axioms[i];
+            const indir = condition(left, right);
+            if (indir) {
                 return {
-                    result: expression._replace (left, right),
-                    axiom: `axiom_${i + 1}.0`
+                    result: expression._replace(
+                        indir === 'tryReduce'  ? left  : right , 
+                        indir === 'tryReduce'  ? right : left ),
+                    axiom: `axiom_${i + 1}.0`,
                 };
             }
         }
         return null;
-    }
+    } // applyRule
     
-    function tryExpand (expression, axioms) {
-        for (let i = 0; i < axioms.length; i++) {
-            const [left, right] = axioms [i];
-            if (expression._includes (right)) {
-                return {
-                    result: expression._replace (right, left),
-                    axiom: `axiom_${i + 1}.0`
-                };
-            }
-        }
-        return null;
-    }
+} catch (e) {
+    output.value = JSON.stringify (e, ' ', 2);
+}
     
-    } catch (e) {
-        output.value = JSON.stringify (e, ' ', 2);
-    }
-    
-    input.value = input.value
-    ? input.value :
-    `// Axioms and Lemmas
-    1 + 1 = 2
-    2 + 2 = 4
-    
-    // Prove
-    1 + 2 + 1 = 4`;
-    
-    output.value = '';
+input.value = input.value
+? input.value :
+`// Axioms and Lemmas
+1 + 1 = 2
+2 + 2 = 4
+
+// Prove
+1 + 2 + 1 = 4`;
+
+output.value = '';
