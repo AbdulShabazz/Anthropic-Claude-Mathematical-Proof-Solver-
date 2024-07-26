@@ -1,52 +1,50 @@
 
 try {
 
-    function solveProblem() {
-        const { axioms, proofStatement } = parseInput(document.getElementById('input').value);
-        document.getElementById('output').value = generateProof(axioms, proofStatement);
+    function solveProblem () {
+        const {axioms, proofStatement} = parseInput (document.getElementById ('input').value);
+        document.getElementById ('output').value = generateProof (axioms, proofStatement);
     } // end solveProblem
     
-    function parseInput(input) {
-        const lines = input.split('\n').filter(line => line.trim() && !line.startsWith('//'));
+    function parseInput (input) {
+        const lines = input.split ('\n').filter (line => line.trim () && !line.startsWith ('//'));
         return {
-            axioms: lines.slice(0, -1).map(line => line.split(/[~<]?=+[>]?/g).map(s => s.trim().split(/\s+/))),
+            axioms: lines.slice (0, -1).map ((line,idx,me) => line.split (/[~<]?=+[>]?/g).map ((s,idx,me) => s.trim ().split (/\s+/))),
             proofStatement: lines[lines.length - 1]
         };
     } // end parseInput
     
-    function generateProof(axioms, proofStatement) {
-        let [lhs, rhs] = proofStatement.split(/[~<]?=+[>]?/g).map(s => s.trim().split(/\s+/));
+    function generateProof (axioms, proofStatement) {
+        let [lhs, rhs] = proofStatement.split (/[~<]?=+[>]?/g).map (s => s.trim ().split (/\s+/));
         let steps = [];
-        let currentLhs = lhs, currentRhs = rhs;
     
-        const applyRules = (side, action, current, other) => {
-            const rule = action === 'reduce' ? tryReduce : tryExpand;
-            let changed;
-            do {
-                changed = rule(current, axioms);
-                if (changed) {
-                    steps.push({ side, action, result: [...changed.result], axiom: changed.axiom, other: [...other] });
-                    current = changed.result;
-                }
-            } while (changed && current.join(' ') != other.join(' '));
-            return current;
-        };
+        const applyRules = (sides, action) => {
+            sides = sides.map ((current,idx,me) => {
+                let changed;
+                const other = idx == 0 ? me[1] : me[0] ;
+                const side = idx == 0 ? 'lhs' : 'rhs' ;
+                do {
+                    changed = applyRule (current, axioms, action);
+                    if (changed) {
+                        steps.push ({ side, action, result: [...changed.result], axiom: changed.axiom, other: [...other] });
+                        current = changed.result;
+                    }
+                } while (changed && current.join (' ') !== other.join (' '));
+                return current;
+            });
+            return (sides[0].join(' ') == sides[1].join(' '));
+        };         
     
-        currentRhs = applyRules('rhs', 'reduce', rhs, lhs);
-        currentLhs = applyRules('lhs', 'reduce', lhs, rhs);
-        
-        if (currentLhs.join(' ') != currentRhs.join(' ')) {
-            steps = [];
-            currentRhs = applyRules('rhs', 'expand', rhs, lhs);
-            currentLhs = applyRules('lhs', 'expand', lhs, rhs);
-        }
-    
-        const proofFound = currentLhs.join(' ') === currentRhs.join(' ');
-        let proof = `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n`;
-        steps.forEach(step => {
-            proof += `${step.side === 'lhs' ? step.result.join(' ') : step.other.join(' ')} = ${step.side === 'lhs' ? step.other.join(' ') : step.result.join(' ')}, (${step.side} ${step.action}) via ${step.axiom}\n`;
-        });
-        return proof + (proofFound ? '\nQ.E.D.' : '');
+        const proofFound = (() => {
+            let ret = applyRules ([[...lhs], [...rhs]],'reduce');
+            ret == (lhs.join (' ') == rhs.join (' '));
+            !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
+            return ret;
+        })();
+
+        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
+            steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiom}`).join ('\n') +
+            (proofFound ? '\n\nQ.E.D.' : '');
     } // end generateProof
     
     Object.prototype._includes = function (indir) {
@@ -99,31 +97,14 @@ try {
         return self;
     } // end Object.prototype._replace
     
-    function tryReduce(expression, axioms) {
-        return applyRule(expression, axioms, (left, right) => {
-                let ret;
-                expression._includes(left) && (ret = 'tryReduce');
-                return ret;
-            });
-    } // end tryReduce
-    
-    function tryExpand(expression, axioms) {
-        return applyRule(expression, axioms, (left, right) => {
-                let ret;
-                expression._includes(right) && (ret = 'tryExpand');
-                return ret;
-            });
-    } // end tryExpand
-    
-    function applyRule(expression, axioms, condition) {
+    function applyRule (expression, axioms, action) {
         for (let i = 0; i < axioms.length; i++) {
             const [left, right] = axioms[i];
-            const indir = condition(left, right);
-            if (indir) {
+            const match = action === 'reduce' ? left : right;
+            const replacer = action === 'reduce' ? right : left;
+            if (expression._includes (match)) {
                 return {
-                    result: expression._replace(
-                        indir === 'tryReduce'  ? left  : right , 
-                        indir === 'tryReduce'  ? right : left ),
+                    result: expression._replace (match, replacer),
                     axiom: `axiom_${i + 1}.0`,
                 };
             }
