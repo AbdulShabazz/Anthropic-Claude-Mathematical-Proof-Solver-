@@ -3,27 +3,34 @@ try {
 
     function solveProblem () {
         const {axioms, proofStatement} = parseInput (document.getElementById ('input').value);
-        const startTime = performance.now();
+        const startTime = performance.now ();
         document.getElementById ('output').value = generateProof (axioms, proofStatement);
-        output.value += `\n\nTotal runtime: ${performance.now() - startTime} Milliseconds`;
+        output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
     } // end solveProblem
-    
+
     function parseInput (input) {
         const lines = input.split ('\n').filter (line => line.trim () && !line.startsWith ('//'));
         return {
-            axioms: lines.slice (0, -1).map ((line,idx,me) => line.split (/[~<]?=+[>]?/g).map ((s,idx,me) => s.trim ().split (/\s+/))),
-            proofStatement: lines[lines.length - 1]
+            axioms: lines
+                .slice (0, -1)
+                    .map ((line,idx,me) => line
+                        .split (/[~<]?=+[>]?/g)
+                            .sort ((a,b) => a.length <= b.length )
+                                .map ((s,idx,me) => s
+                                    .trim ()
+                                        .split (/\s+/))),
+            proofStatement: lines [lines.length - 1]
         };
     } // end parseInput
-    
+
     function generateProof (axioms, proofStatement) {
         let [lhs, rhs] = proofStatement.split (/[~<]?=+[>]?/g).map (s => s.trim ().split (/\s+/));
         let steps = [];
-    
+
         const applyRules = (sides, action) => {
             sides = sides.map ((current,idx,me) => {
                 let changed;
-                const other = idx == 0 ? me[1] : me[0] ;
+                const other = idx == 0 ? me [1] : me [0] ;
                 const side = idx == 0 ? 'lhs' : 'rhs' ;
                 do {
                     changed = applyRule (current, axioms, action);
@@ -34,9 +41,9 @@ try {
                 } while (changed && current.join (' ') !== other.join (' '));
                 return current;
             });
-            return (sides[0].join(' ') == sides[1].join(' '));
-        };         
-    
+            return (sides [0].join (' ') == sides [1].join (' '));
+        };
+
         const proofFound = (() => {
             let ret = applyRules ([[...lhs], [...rhs]],'reduce');
             ret == (lhs.join (' ') == rhs.join (' '));
@@ -48,7 +55,7 @@ try {
             steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiom}`).join ('\n') +
             (proofFound ? '\n\nQ.E.D.' : '');
     } // end generateProof
-    
+
     Object.prototype._includes = function (indir) {
         let ret = false;
         const self = this;
@@ -64,7 +71,7 @@ try {
         }
         return ret;
     } // end Object.prototype._includes
-    
+
     Object.prototype._replace = function (from, to) {
         let ret = false;
         let self = [...this];
@@ -98,10 +105,10 @@ try {
                             .trim ());
         return self;
     } // end Object.prototype._replace
-    
+
     function applyRule (expression, axioms, action) {
         for (let i = 0; i < axioms.length; i++) {
-            const [left, right] = axioms[i];
+            const [left, right] = axioms [i];
             const match = action === 'reduce' ? left : right;
             const replacer = action === 'reduce' ? right : left;
             if (expression._includes (match)) {
@@ -113,11 +120,11 @@ try {
         }
         return null;
     } // end applyRule
-    
+
 } catch (e) {
     output.value = JSON.stringify (e, ' ', 2);
 }
-    
+
 input.value = input.value
 ? input.value :
 `// Axioms and Lemmas
