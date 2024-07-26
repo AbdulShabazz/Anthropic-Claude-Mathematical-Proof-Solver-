@@ -3,7 +3,9 @@ try {
 
     function solveProblem () {
         const {axioms, proofStatement} = parseInput (document.getElementById ('input').value);
+        const startTime = performance.now();
         document.getElementById ('output').value = generateProof (axioms, proofStatement);
+        output.value += `\n\nTotal runtime: ${performance.now() - startTime} Milliseconds`;
     } // end solveProblem
     
     function parseInput (input) {
