@@ -2,32 +2,10 @@
 try {
     
     let LASTPRIMEIDX = 3n;
-
-    const isPrime = function (num) {
-        if (num <= 1n) return false;
-        if (num <= 3n) return true;
-
-        // Check divisibility from 2 to the square root of num
-        for (let i = 2n; i * i <= num; ++i) {
-            if (num % i == 0) return false;
-        }
-        return true;
-    };
-
-    const nextPrime = function() {
-        var num = LASTPRIMEIDX;
-        while (1) {
-            if (isPrime (num)) {
-                LASTPRIMEIDX = num + 2n;
-                return num;
-            }
-            num += 2n; // only check odd numbers //
-        }
-    };
-
     let guidZ = 0n;
-    let resolutionZ = 11; // 2048; max value allowed of 256 primes (ie. tokens) //
+    let resolutionZ = 11n; // 2048; max value allowed of 256 primes (ie. tokens) //
     let tokenLibraryMap = new Map ();
+    let tokenLibraryInverseMap = new Map ();
     const PrimeNumberArray = [
         3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n, 41n, 43n, 47n, 53n, 59n, 61n, 67n, 71n, 
         73n, 79n, 83n, 89n, 97n, 101n, 103n, 107n, 109n, 113n, 127n, 131n, 137n, 139n, 149n, 151n, 157n, 
@@ -64,18 +42,12 @@ try {
                     .map ((line,idx,me) => line
                         .split (/[~<]?=+[>]?/g)
                             .sort ((a,b) => a.length <= b.length )
-                                .map ((s,idx,me) => {s
+                                .map ((s,idx,me) => { s
                                     .trim ()
                                         .split (/\s+/)
-                                            .map ((u,thisIdx,thisArray) => {
+                                            .forEach ((u,thisIdx,thisArray) => {
                                                 (thisIdx < 1) && (keyZ = 0n) && (pKeyZ = 1n);
-                                                if (!((guidZ+1n) in PrimeNumberArray))
-                                                    PrimeNumberArray.push (nextPrime ());
-                                                if (!tokenLibraryMap.has (u))
-                                                    tokenLibraryMap.set (u, PrimeNumberArray[guidZ++]);
-                                                const tokZ = tokenLibraryMap.get(u);
-                                                keyZ = (keyZ | tokz) << resolutionZ;
-                                                pKeyZ *= tokZ;
+                                                [keyZ, pKeyZ] = updateTokenZValues(u, keyZ, pKeyZ);
                                             });
                                             return { keyZ, pKeyZ };
                                         })),
@@ -88,18 +60,12 @@ try {
         let pKeyZ = 1n;
         let [lhs, rhs] = proofStatement
             .split (/[~<]?=+[>]?/g)
-                .map (s => {
+                .map ((s,idx,me) => {
                     s.trim ()
                         .split (/\s+/)
-                            .map ((u,thisIdx,thisArray) => {
+                            .forEach ((u,thisIdx,thisArray) => {
                                 (thisIdx < 1) && (keyZ = 0n) && (pKeyZ = 1n);
-                                if (!((guidZ+1n) in PrimeNumberArray))
-                                    PrimeNumberArray.push (nextPrime ());
-                                if (!tokenLibraryMap.has (u))
-                                    tokenLibraryMap.set (u, PrimeNumberArray[guidZ++]);
-                                const tokZ = tokenLibraryMap.get(u);
-                                keyZ = (keyZ | tokz) << resolutionZ;
-                                pKeyZ *= tokZ;
+                                [keyZ, pKeyZ] = updateTokenZValues(u, keyZ, pKeyZ);
                             });
                         return { keyZ, pKeyZ };
                     });
@@ -113,26 +79,46 @@ try {
                 do {
                     changed = applyRule (current, axioms, action);
                     if (changed) {
-                        steps.push ({ side, action, result: [...changed.result], axiom: changed.axiom, other: [...other] });
+                        steps.push ({ side, action, result: structuredClone(changed.result), axiom: changed.axiom, other: structuredClone(other) });
                         current = changed.result;
                     }
-                } while (changed && current.join (' ') !== other.join (' '));
+                } while (changed && current.keyZ != other.keyZ);
                 return current;
             });
-            return (sides [0].join (' ') == sides [1].join (' '));
+            return (sides [0] == sides [1]);
         };
 
         const proofFound = (() => {
-            let ret = applyRules ([[...lhs], [...rhs]],'reduce');
-            ret == (lhs.join (' ') == rhs.join (' '));
-            !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
+            let ret = applyRules ([lhs, rhs],'reduce');
+            ret == (lhs == rhs);
+            !ret && (steps = []) && (ret = applyRules ([lhs, rhs], 'expand'));
             return ret;
         })();
 
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-            steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiom}`).join ('\n') +
-            (proofFound ? '\n\nQ.E.D.' : '');
+            steps
+                .map ((step,idxZ,thisArray) => {
+                    const resultW = convertBitstream2tokens({ proofStepZ: step.result.keyZ, maskSizeZ: resolutionZ })?.join (' ');
+                    const otherW = convertBitstream2tokens({ proofStepZ: step.other.keyZ, maskSizeZ: resolutionZ })?.join (' ');
+                    return `${step.side === 'lhs' ? resultW : otherW } = ${step.side === 'lhs' ? otherW : resultW }, (${step.side} ${step.action}) via ${step.axiom}`            
+                })
+                .join ('\n') 
+                + (proofFound ? '\n\nQ.E.D.' : '');
     } // end generateProof
+
+    function updateTokenZValues(u,keyZ,pKeyZ) {
+        if (!((guidZ+1n) in PrimeNumberArray))
+            PrimeNumberArray.push (nextPrime ());
+        if (!tokenLibraryMap.has (u)) {
+            const primeZ = PrimeNumberArray[guidZ++];
+            tokenLibraryMap.set (u, primeZ);
+            tokenLibraryInverseMap.set (primeZ, u);
+        }
+        const tokZ = tokenLibraryMap.get(u);
+        keyZ = (keyZ | tokZ) << resolutionZ;
+        pKeyZ *= tokZ;
+        return [ keyZ, pKeyZ ];
+    } // end updateTokenZValues
 
     function applyRule (expression, axioms, action) {
         for (let i = 0; i < axioms.length; i++) {
@@ -152,7 +138,7 @@ try {
     Object.prototype._includes = function (indir) {
         let ret = false;
         const self = this;
-        if ((self.pKeyZ >= indir.pKeyZ) && (self.pKeyZ % indir == 0n)) {
+        if ((self.pKeyZ >= indir.pKeyZ) && (self.pKeyZ % indir.pKeyZ == 0n)) {
             const valArray = replaceBitfieldsInProofStepBigEndian ({ 
                     proofStepZ: self.keyZ, 
                     maskSizeZ: resolutionZ,
@@ -226,7 +212,10 @@ try {
         const toResolutionZ = resolutionOf ({ valueZ: toZ });
     
         const nonMatchSubnetLengthsFlag = (fromResolutionZ !== proofStepResolutionZ);
-    
+        const bitsRemainingZ = proofStepResolutionZ % maskSizeZ;
+        const fromOffsetBitsRemainingZ = fromResolutionZ % maskSizeZ;
+        const toOffsetBitsRemainingZ = toResolutionZ % maskSizeZ;
+    /*
         let bitsRemainingZ = proofStepResolutionZ;
         let fromOffsetBitsRemainingZ = fromResolutionZ;
         let toOffsetBitsRemainingZ = toResolutionZ;
@@ -245,10 +234,10 @@ try {
             if (toOffsetBitsRemainingZ > maskSizeZ)
                 toOffsetBitsRemainingZ -= maskSizeZ;
         }
-    
+     */
         let lastPushedValue = null;
     
-        // ensure all offsets align to (Resolution % maskSizeZ) boundaries
+        // ensure all offsets align to % maskSizeZ boundaries
         const proofstepOffsetZ = proofStepResolutionZ - bitsRemainingZ;
         let fromOffsetZ = fromResolutionZ - fromOffsetBitsRemainingZ;
         const fromOffsetResetZ = fromResolutionZ - fromOffsetBitsRemainingZ;
@@ -311,7 +300,8 @@ try {
         let ret = [];
         const chunkMask = (1n << maskSizeZ) - 1n;
         const proofStepResolutionZ = resolutionOf ({ valueZ: proofStepZ });
-    
+        const bitsRemainingZ = proofStepResolutionZ % maskSizeZ;
+    /* 
         let bitsRemainingZ = proofStepResolutionZ;
     
         // ensure read/write masks are properly aligned
@@ -321,7 +311,7 @@ try {
                 bitsRemainingZ -= maskSizeZ;
     
         }
-    
+     */
         // ensure all offsets align to (Resolution % maskSizeZ) boundaries
         const proofstepOffsetZ = proofStepResolutionZ - bitsRemainingZ;
     
@@ -339,6 +329,28 @@ try {
     
         return I;
     } // end resolutionOf
+
+    const isPrime = function (num) {
+        if (num <= 1n) return false;
+        if (num <= 3n) return true;
+
+        // Check divisibility from 2 to the square root of num
+        for (let i = 2n; i * i <= num; ++i) {
+            if (num % i == 0) return false;
+        }
+        return true;
+    };
+
+    const nextPrime = function() {
+        var num = LASTPRIMEIDX;
+        while (1) {
+            if (isPrime (num)) {
+                LASTPRIMEIDX = num + 2n;
+                return num;
+            }
+            num += 2n; // only check odd numbers //
+        }
+    };
 
 } catch (e) {
     output.value = JSON.stringify (e, ' ', 2);
