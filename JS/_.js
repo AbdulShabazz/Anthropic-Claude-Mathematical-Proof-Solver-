@@ -98,6 +98,21 @@ try {
             (proofFound ? '\n\nQ.E.D.' : '');
     } // end generateProof
 
+    function applyRule (expression, axioms, action) {
+        for (let i = 0; i < axioms.length; i++) {
+            const [left, right] = axioms [i];
+            const match = action === 'reduce' ? left : right;
+            const replacer = action === 'reduce' ? right : left;
+            if (expression._includes (match)) {
+                return {
+                    result: expression._replace (match, replacer),
+                    axiom: `axiom_${i + 1}.0`,
+                };
+            }
+        }
+        return null;
+    } // end applyRule
+
     function updateTokenZValues(u,pKeyZ) {
         if (!((guidZ+1n) in PrimeNumberArray))
             PrimeNumberArray.push (nextPrime ());
@@ -115,13 +130,15 @@ try {
         let ret = false;
         const self = this;
         if ((self.pKeyZ >= indir.pKeyZ) 
-            && (self.pKeyZ % indir.pKeyZ == 0n)
+            && (self._containsPrimaryKey(indir.pKeyZ))
                 && (self.tokens.length >= indir.tokens.length)){
             let i = 0;
-            for (let tok of self.tokens) {
-                if (indir.tokens [i] === tok)
+            let _self = self.tokens;
+            const _tokens = indir.tokens;
+            for (let tok of _self) {
+                if (_tokens [i] === tok)
                     ++i;
-                !ret && (ret = (indir.length == i));
+                !ret && (ret = (_tokens.length == i));
                 if (ret)
                     break;
             }
@@ -129,25 +146,34 @@ try {
         return ret;
     } // end Object.prototype._includes
 
+    Object.prototype._containsPrimaryKey = function  (indirKeyZ) {
+        const exprKeyz = this.pKeyZ;
+        const statusFlag = exprKeyz % indirKeyZ == 0n;
+        return statusFlag;
+    }
+
     Object.prototype._replace = function (from, to) {
         let ret = false;
         let self = structuredClone(this);
-        if (self.tokens.length >= from.tokens.length){
+        const _from = from.tokens;
+        const _to = to.tokens;
+        let _self = self.tokens;
+        if (_self.length >= _from.length){
             let i = 0;
             let j = 0;
             let tokenIDX = [];
-            for (let tok of self.tokens) {
-                if (from.tokens [i] === tok){
+            for (let tok of _self) {
+                if (_from [i] === tok){
                     tokenIDX.push (j);
                     ++i;
                 }
-                !ret && (ret = (from.tokens.length == i));
+                !ret && (ret = (_from.length == i));
                 if (ret){
                     tokenIDX.forEach ((k,idx,me) => {
-                        self.tokens [k] = '';
+                        _self [k] = '';
                     });
-                    self.tokens [j] = to.tokens.join (' ');
-                    self.pKeyZ = self.pKeyZ / from.pKeyZ * to.pKeyZ;
+                    _self [j] = _to.join (' ');
+                    self.pKeyZ = updatePrimaryKey(self.pKeyZ,from.pKeyZ,to.pKeyZ);
                     i = 0;
                     ret = false;
                     tokenIDX = [];
@@ -155,7 +181,7 @@ try {
                 ++j;
             }
         }
-        self.tokens = self.tokens
+        self.tokens = _self
             .join (' ')
                 .split (/\s+/)
                     .filter (u => u)
@@ -164,20 +190,10 @@ try {
         return self;
     } // end Object.prototype._replace
 
-    function applyRule (expression, axioms, action) {
-        for (let i = 0; i < axioms.length; i++) {
-            const [left, right] = axioms [i];
-            const match = action === 'reduce' ? left : right;
-            const replacer = action === 'reduce' ? right : left;
-            if (expression._includes (match)) {
-                return {
-                    result: expression._replace (match, replacer),
-                    axiom: `axiom_${i + 1}.0`,
-                };
-            }
-        }
-        return null;
-    } // end applyRule
+    function updatePrimaryKey (pKeyZ,fromKeyZ,toKeyZ) {
+        pKeyZ = pKeyZ / fromKeyZ * toKeyZ;
+        return pKeyZ;
+    }
 
     function isPrime (num) {
         if (num <= 1n) return false;
