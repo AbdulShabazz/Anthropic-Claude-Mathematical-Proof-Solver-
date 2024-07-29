@@ -1,5 +1,7 @@
 
 try {
+    
+    let guidZ = 0n;
     let tokenLibraryMap = new Map ();
     let tokenLibraryInverseMap = new Map ();
     const PrimeNumberArray = [
@@ -29,6 +31,7 @@ try {
     } // end solveProblem
 
     function parseInput (input) {
+        let pKeyZ;
         const lines = input.split ('\n').filter (line => line.trim () && !line.startsWith ('//'));
         return {
             axioms: lines
@@ -36,15 +39,34 @@ try {
                     .map ((line,idx,me) => line
                         .split (/[~<]?=+[>]?/g)
                             .sort ((a,b) => a.length <= b.length )
-                                .map ((s,idx,me) => s
+                                .map ((tokens,idx,me) => { tokens = tokens
                                     .trim ()
-                                        .split (/\s+/))),
+                                        .split (/\s+/)
+                                            .map ((u,thisIdx,thisArray) => {
+                                                (thisIdx < 1) && (pKeyZ = 1n);
+                                                pKeyZ = updateTokenZValues(u, pKeyZ);
+                                                return u;
+                                            });
+                                            return { tokens, pKeyZ };
+                                        })),
             proofStatement: lines [lines.length - 1]
         };
     } // end parseInput
 
     function generateProof (axioms, proofStatement) {
-        let [lhs, rhs] = proofStatement.split (/[~<]?=+[>]?/g).map (s => s.trim ().split (/\s+/));
+        let pKeyZ;
+        let [lhs, rhs] = proofStatement
+            .split (/[~<]?=+[>]?/g)
+                .map ((tokens,idx,me) => {
+                    tokens = tokens.trim ()
+                        .split (/\s+/)
+                            .map ((u,thisIdx,thisArray) => {
+                                (thisIdx < 1) && (pKeyZ = 1n);
+                                pKeyZ = updateTokenZValues(u, pKeyZ);
+                                return u;
+                            });
+                        return { tokens, pKeyZ };
+                    });
         let steps = [];
 
         const applyRules = (sides, action) => {
@@ -55,34 +77,49 @@ try {
                 do {
                     changed = applyRule (current, axioms, action);
                     if (changed) {
-                        steps.push ({ side, action, result: [...changed.result], axiom: changed.axiom, other: [...other] });
+                        steps.push ({ side, action, result: structuredClone(changed.result), axiom: changed.axiom, other: structuredClone(other) });
                         current = changed.result;
                     }
-                } while (changed && current.join (' ') !== other.join (' '));
+                } while (changed && current.tokens.join (' ') !== other.tokens.join (' '));
                 return current;
             });
-            return (sides [0].join (' ') == sides [1].join (' '));
+            return (sides [0].tokens.join (' ') == sides [1].tokens.join (' '));
         };
 
         const proofFound = (() => {
-            let ret = applyRules ([[...lhs], [...rhs]],'reduce');
-            ret == (lhs.join (' ') == rhs.join (' '));
-            !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
+            let ret = applyRules ([structuredClone(lhs), structuredClone(rhs)],'reduce');
+            ret == (lhs.tokens.join (' ') == rhs.tokens.join (' '));
+            !ret && (steps = []) && (ret = applyRules ([structuredClone(lhs), structuredClone(rhs)], 'expand'));
             return ret;
         })();
 
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-            steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiom}`).join ('\n') +
+            steps.map (step => `${step.side === 'lhs' ? step.result.tokens.join (' ') : step.other.tokens.join (' ')} = ${step.side === 'lhs' ? step.other.tokens.join (' ') : step.result.tokens.join (' ')}, (${step.side} ${step.action}) via ${step.axiom}`).join ('\n') +
             (proofFound ? '\n\nQ.E.D.' : '');
     } // end generateProof
+
+    function updateTokenZValues(u,pKeyZ) {
+        if (!((guidZ+1n) in PrimeNumberArray))
+            PrimeNumberArray.push (nextPrime ());
+        if (!tokenLibraryMap.has (u)) {
+            const primeZ = PrimeNumberArray[guidZ++];
+            tokenLibraryMap.set (u, primeZ);
+            tokenLibraryInverseMap.set (primeZ, u);
+        }
+        const tokZ = tokenLibraryMap.get(u);
+        pKeyZ *= tokZ;
+        return pKeyZ;
+    } // end updateTokenZValues
 
     Object.prototype._includes = function (indir) {
         let ret = false;
         const self = this;
-        if (self.length >= indir.length){
+        if ((self.pKeyZ >= indir.pKeyZ) 
+            && (self.pKeyZ % indir.pKeyZ == 0n)
+                && (self.tokens.length >= indir.tokens.length)){
             let i = 0;
-            for (let tok of self) {
-                if (indir [i] === tok)
+            for (let tok of self.tokens) {
+                if (indir.tokens [i] === tok)
                     ++i;
                 !ret && (ret = (indir.length == i));
                 if (ret)
@@ -94,22 +131,23 @@ try {
 
     Object.prototype._replace = function (from, to) {
         let ret = false;
-        let self = [...this];
-        if (self.length >= from.length){
+        let self = structuredClone(this);
+        if (self.tokens.length >= from.tokens.length){
             let i = 0;
             let j = 0;
             let tokenIDX = [];
-            for (let tok of self) {
-                if (from [i] === tok){
+            for (let tok of self.tokens) {
+                if (from.tokens [i] === tok){
                     tokenIDX.push (j);
                     ++i;
                 }
-                !ret && (ret = (from.length == i));
+                !ret && (ret = (from.tokens.length == i));
                 if (ret){
                     tokenIDX.forEach ((k,idx,me) => {
-                        self [k] = '';
+                        self.tokens [k] = '';
                     });
-                    self [j] = to.join (' ');
+                    self.tokens [j] = to.tokens.join (' ');
+                    self.pKeyZ = self.pKeyZ / from.pKeyZ * to.pKeyZ;
                     i = 0;
                     ret = false;
                     tokenIDX = [];
@@ -117,7 +155,7 @@ try {
                 ++j;
             }
         }
-        self = self
+        self.tokens = self.tokens
             .join (' ')
                 .split (/\s+/)
                     .filter (u => u)
