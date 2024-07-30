@@ -12,47 +12,42 @@ try {
         _output.value = generateProof (axioms, proofStatement);
         output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
     } // end solveProblem
-    
+
     function parseInput(input) {
         let lines = input.split('\n').filter(line => line.trim() && !line.startsWith('//'));
         let axioms = new Set ();
-    
+
         lines.slice(0, -1).forEach(line => {
             const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
             parts.forEach((part, i) => {
-                parts.slice(i + 1).forEach(otherPart => {
-                    axioms.add(`${part} = ${otherPart}`);
+                parts.slice(i + 1).forEach((otherPart, j, me) => {
+                    axioms.add({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${i+1}.0`});
                 });
             });
         });
-    
+
         const sortedAxioms = Array.from(axioms)
-            .map(axiom => axiom
-                .split(' = ')
-                    .sort((a, b) => a.length <= b.length));
-    
+            .map(axiom => {
+                axiom.subnets = axiom.subnets
+                    .split(' = ')
+                        .sort((a, b) => a.length <= b.length)
+                            .map((pair,i,me) => pair.split(/\s+/));
+                return axiom;
+            });
+
         const proofStatement = lines[lines.length - 1];
 
-        // Update input.value with expanded axioms
-        const IDX = sortedAxioms.length - 1;
-        _input.value = 
-            sortedAxioms.map((pair,idx,me) => {
-                    return `${ idx < 1 ? '// Axioms and Lemmas (**Expanded**)\n' : '' }${pair[0]} = ${pair[1]}`;
-                })
-                    .join('\n') + 
-                        '\n\n// Theorem to prove\n' + proofStatement;
-
-        updateLineNumbers ();
-    
         return {
-            axioms: sortedAxioms.map(pair => pair.map(s => s.split(/\s+/))),
+            axioms: sortedAxioms,
             proofStatement: proofStatement
         };
     } // end parseInput
 
     function generateProof (axioms, proofStatement) {
         let steps = [];
-        let [lhs, rhs] = proofStatement.split (/[~<]?=+[>]?/g).map (s => s.trim ().split (/\s+/));
+        let [lhs, rhs] = proofStatement
+            .split (/[~<]?=+[>]?/g)
+                .map (s => s.trim ().split (/\s+/));
 
         const proofFound = (() => {
             if (lhs.join (' ') == rhs.join (' '))
@@ -64,8 +59,8 @@ try {
         })();
 
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-            steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiom}`).join ('\n') +
-            (proofFound ? '\n\nQ.E.D.' : '');                
+            steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiomID}`).join ('\n') +
+            (proofFound ? '\n\nQ.E.D.' : '');
 
         function applyRules (sides, action) {
             sides = sides.map ((current,idx,me) => {
@@ -75,7 +70,7 @@ try {
                 do {
                     changed = applyRule (current, axioms, action);
                     if (changed) {
-                        steps.push ({ side, action, result: [...changed.result], axiom: changed.axiom, other: [...other] });
+                        steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [...other] });
                         current = changed.result;
                     }
                 } while (changed && current.join (' ') !== other.join (' '));
@@ -87,15 +82,17 @@ try {
     } // end generateProof
 
     function applyRule (expression, axioms, action) {
-        for (let i = 0; i < axioms.length; i++) {
-            const [left, right] = axioms [i];
+        const I = axioms.length;
+        for (let i = 0; i < I; i++) {
+            const axiom = axioms [i];
+            const [left, right] = axiom.subnets;
             const match = action === 'reduce' ? left : right;
             const replacer = action === 'reduce' ? right : left;
             const rewriteFound = expression._tryReplace (match, replacer);
             if (rewriteFound) {
                 return {
                     result: rewriteFound,
-                    axiom: `axiom_${i + 1}.0`,
+                    axiomID: axiom.axiomID,
                 };
             }
         }
@@ -143,16 +140,18 @@ try {
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
         let i = 1;
-        lineNumbers.innerHTML = lines.map ((u, index) => /^[^\/\t\s\n]+/.test(u) ? i++ : '').join ('<br>');
+        lineNumbers.innerHTML = lines
+            .map ((u, index) => /^[^\/\t\s\n]+/.test(u) ? i++ : '')
+                .join ('<br>');
     } // end updateLineNumbers
-    
+
     _input.addEventListener ('keyup', function () {
         updateLineNumbers ();
     });
 
     _input.addEventListener ('scroll', function () {
         lineNumbers.scrollTop = this.scrollTop;
-    });      
+    });
 
     updateLineNumbers ();
 
