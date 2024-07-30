@@ -122,6 +122,17 @@ try {
 
         return self;
     } // end Object.prototype._tryReplace
+    
+    function scopeSatisfied (etok, lhs, li, rhs, ri) {
+        const endScope = { "(": ")", "{": "}" };
+        if (lhs[li] !== rhs[ri]) return false;
+        if (!(etok in endScope)) return true;
+        for (let i = 1; li + i in lhs && ri + i in rhs; i++)
+          if (lhs[li + i] !== rhs[ri + i] 
+            || rhs[ri + i] === endScope[etok]) 
+                return rhs[ri + i] === endScope[etok];
+        return false;
+    } // end scopeSatisfied
 
 } catch (e) {
     output.value = JSON.stringify (e, ' ', 2);
