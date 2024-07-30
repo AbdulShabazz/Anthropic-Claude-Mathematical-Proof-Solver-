@@ -72,6 +72,8 @@ try {
         return null;
     } // end applyRule
 
+    let rewriteCacheMap = new Map ();
+
     Object.prototype._tryReplace = function (from, to) {
         let ret = false;
         if (from.length > this.length)
@@ -81,6 +83,12 @@ try {
         let self = [...this];
         let tokenIDX = [];
         let rewriteFoundFlag;
+        const rewriteKey = `${self.join (' ')}:${from.join (' ')}`;
+        if (rewriteCacheMap.has (rewriteKey))
+            return rewriteCacheMap.get (rewriteKey);
+
+        rewriteCacheMap.set (rewriteKey, false);
+
         for (let tok of self) {
             if (from [i] === tok){
                 tokenIDX.push (j);
@@ -99,14 +107,19 @@ try {
             }
             ++j;
         }
+
         if (!rewriteFoundFlag)
             return false;
+
         self = self
             .join (' ')
                 .split (/\s+/)
                     .filter (u => u)
                         .map ((s,index,me) => s
                             .trim ());
+
+        rewriteCacheMap.set (rewriteKey, [...self]);
+
         return self;
     } // end Object.prototype._tryReplace
 
