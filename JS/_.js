@@ -17,11 +17,11 @@ try {
         let lines = input.split('\n').filter(line => line.trim() && !line.startsWith('//'));
         let axioms = new Set ();
 
-        lines.slice(0, -1).forEach(line => {
+        lines.slice(0, -1).forEach((line,k,thisArray) => {
             const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
             parts.forEach((part, i) => {
                 parts.slice(i + 1).forEach((otherPart, j, me) => {
-                    axioms.add({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${i+1}.0`});
+                    axioms.add({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
                 });
             });
         });
