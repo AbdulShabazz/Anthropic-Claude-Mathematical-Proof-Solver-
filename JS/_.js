@@ -6,32 +6,68 @@ try {
     let lineNumbers = document.getElementById ('line-numbers');
 
     function solveProblem () {
-        const {axioms, proofStatement} = parseInput (document.getElementById ('input').value);
+        rewriteHistoryProofFoundFlag = false;
+        const {axioms, proofStatement} = parseInput (_input.value);
         const startTime = performance.now ();
-        document.getElementById ('output').value = generateProof (axioms, proofStatement);
+        _output.value = generateProof (axioms, proofStatement);
         output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
     } // end solveProblem
+    
+    function parseInput(input) {
+        let lines = input.split('\n').filter(line => line.trim() && !line.startsWith('//'));
+        let axioms = new Set ();
+    
+        lines.slice(0, -1).forEach(line => {
+            const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
+            parts.forEach((part, i) => {
+                parts.slice(i + 1).forEach(otherPart => {
+                    axioms.add(`${part} = ${otherPart}`);
+                });
+            });
+        });
+    
+        const sortedAxioms = Array.from(axioms)
+            .map(axiom => axiom
+                .split(' = ')
+                    .sort((a, b) => a.length <= b.length));
+    
+        const proofStatement = lines[lines.length - 1];
 
-    function parseInput (input) {
-        const lines = input.split ('\n').filter (line => line.trim () && !line.startsWith ('//'));
+        // Update input.value with expanded axioms
+        const IDX = sortedAxioms.length - 1;
+        _input.value = 
+            sortedAxioms.map((pair,idx,me) => {
+                    return `${ idx < 1 ? '// Axioms and Lemmas (**Expanded**)\n' : '' }${pair[0]} = ${pair[1]}`;
+                })
+                    .join('\n') + 
+                        '\n\n// Theorem to prove\n' + proofStatement;
+
+        updateLineNumbers ();
+    
         return {
-            axioms: lines
-                .slice (0, -1)
-                    .map ((line,idx,me) => line
-                        .split (/[~<]?=+[>]?/g)
-                            .sort ((a,b) => a.length <= b.length )
-                                .map ((s,idx,me) => s
-                                    .trim ()
-                                        .split (/\s+/))),
-            proofStatement: lines [lines.length - 1]
+            axioms: sortedAxioms.map(pair => pair.map(s => s.split(/\s+/))),
+            proofStatement: proofStatement
         };
     } // end parseInput
 
     function generateProof (axioms, proofStatement) {
-        let [lhs, rhs] = proofStatement.split (/[~<]?=+[>]?/g).map (s => s.trim ().split (/\s+/));
         let steps = [];
+        let [lhs, rhs] = proofStatement.split (/[~<]?=+[>]?/g).map (s => s.trim ().split (/\s+/));
 
-        const applyRules = (sides, action) => {
+        const proofFound = (() => {
+            if (lhs.join (' ') == rhs.join (' '))
+                return true;
+            let ret = applyRules ([[...lhs], [...rhs]],'reduce');
+            ret == (lhs.join (' ') == rhs.join (' '));
+            !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
+            return ret;
+        })();
+
+        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
+            steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiom}`).join ('\n') +
+            (proofFound ? '\n\nQ.E.D.' : '');                
+
+        function applyRules (sides, action) {
             sides = sides.map ((current,idx,me) => {
                 let changed;
                 const other = idx == 0 ? me [1] : me [0] ;
@@ -46,18 +82,8 @@ try {
                 return current;
             });
             return (sides [0].join (' ') == sides [1].join (' '));
-        };
+        } // end applyRules
 
-        const proofFound = (() => {
-            let ret = applyRules ([[...lhs], [...rhs]],'reduce');
-            ret == (lhs.join (' ') == rhs.join (' '));
-            !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
-            return ret;
-        })();
-
-        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-            steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiom}`).join ('\n') +
-            (proofFound ? '\n\nQ.E.D.' : '');
     } // end generateProof
 
     function applyRule (expression, axioms, action) {
@@ -116,7 +142,8 @@ try {
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
-        lineNumbers.innerHTML = lines.map ((_, index) => index + 1).join ('<br>');
+        let i = 1;
+        lineNumbers.innerHTML = lines.map ((u, index) => /^[^\/\t\s\n]+/.test(u) ? i++ : '').join ('<br>');
     } // end updateLineNumbers
     
     _input.addEventListener ('keyup', function () {
