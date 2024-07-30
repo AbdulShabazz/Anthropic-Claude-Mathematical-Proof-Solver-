@@ -56,47 +56,51 @@ try {
             (proofFound ? '\n\nQ.E.D.' : '');
     } // end generateProof
 
-    Object.prototype._includes = function (indir) {
-        let ret = false;
-        const self = this;
-        if (self.length >= indir.length){
-            let i = 0;
-            for (let tok of self) {
-                if (indir [i] === tok)
-                    ++i;
-                !ret && (ret = (indir.length == i));
-                if (ret)
-                    break;
+    function applyRule (expression, axioms, action) {
+        for (let i = 0; i < axioms.length; i++) {
+            const [left, right] = axioms [i];
+            const match = action === 'reduce' ? left : right;
+            const replacer = action === 'reduce' ? right : left;
+            const rewriteFound = expression._tryReplace (match, replacer);
+            if (rewriteFound) {
+                return {
+                    result: rewriteFound,
+                    axiom: `axiom_${i + 1}.0`,
+                };
             }
         }
-        return ret;
-    } // end Object.prototype._includes
+        return null;
+    } // end applyRule
 
-    Object.prototype._replace = function (from, to) {
+    Object.prototype._tryReplace = function (from, to) {
         let ret = false;
+        if (from.length > this.length)
+            return false;
+        let i = 0;
+        let j = 0;
         let self = [...this];
-        if (self.length >= from.length){
-            let i = 0;
-            let j = 0;
-            let tokenIDX = [];
-            for (let tok of self) {
-                if (from [i] === tok){
-                    tokenIDX.push (j);
-                    ++i;
-                }
-                !ret && (ret = (from.length == i));
-                if (ret){
-                    tokenIDX.forEach ((k,idx,me) => {
-                        self [k] = '';
-                    });
-                    self [j] = to.join (' ');
-                    i = 0;
-                    ret = false;
-                    tokenIDX = [];
-                }
-                ++j;
+        let tokenIDX = [];
+        let rewriteFoundFlag;
+        for (let tok of self) {
+            if (from [i] === tok){
+                tokenIDX.push (j);
+                ++i;
             }
+            !ret && (ret = (from.length == i));
+            if (ret){
+                tokenIDX.forEach ((k,idx,me) => {
+                    self [k] = '';
+                });
+                self [j] = to.join (' ');
+                i = 0;
+                ret = false;
+                tokenIDX = [];
+                !rewriteFoundFlag && (rewriteFoundFlag = true);
+            }
+            ++j;
         }
+        if (!rewriteFoundFlag)
+            return false;
         self = self
             .join (' ')
                 .split (/\s+/)
@@ -104,22 +108,7 @@ try {
                         .map ((s,index,me) => s
                             .trim ());
         return self;
-    } // end Object.prototype._replace
-
-    function applyRule (expression, axioms, action) {
-        for (let i = 0; i < axioms.length; i++) {
-            const [left, right] = axioms [i];
-            const match = action === 'reduce' ? left : right;
-            const replacer = action === 'reduce' ? right : left;
-            if (expression._includes (match)) {
-                return {
-                    result: expression._replace (match, replacer),
-                    axiom: `axiom_${i + 1}.0`,
-                };
-            }
-        }
-        return null;
-    } // end applyRule
+    } // end Object.prototype._tryReplace
 
 } catch (e) {
     output.value = JSON.stringify (e, ' ', 2);
