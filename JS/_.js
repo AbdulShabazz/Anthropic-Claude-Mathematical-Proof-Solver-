@@ -1,6 +1,10 @@
 
 try {
 
+    let _input = document.getElementById ('input');
+    let _output = document.getElementById ('output');
+    let lineNumbers = document.getElementById ('line-numbers');
+
     function solveProblem () {
         const {axioms, proofStatement} = parseInput (document.getElementById ('input').value);
         const startTime = performance.now ();
@@ -109,6 +113,21 @@ try {
                             .trim ());
         return self;
     } // end Object.prototype._tryReplace
+
+    function updateLineNumbers () {
+        const lines = _input.value.split ('\n');
+        lineNumbers.innerHTML = lines.map ((_, index) => index + 1).join ('<br>');
+    } // end updateLineNumbers
+    
+    _input.addEventListener ('keyup', function () {
+        updateLineNumbers ();
+    });
+
+    _input.addEventListener ('scroll', function () {
+        lineNumbers.scrollTop = this.scrollTop;
+    });      
+
+    updateLineNumbers ();
 
 } catch (e) {
     output.value = JSON.stringify (e, ' ', 2);

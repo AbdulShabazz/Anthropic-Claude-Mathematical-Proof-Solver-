@@ -8,9 +8,12 @@
 </head>
 <body>
     <h1>Mathematical Proof Solver</h1>
-    <textarea id="input" placeholder="Enter axioms and proof statement here" spellcheck="false"></textarea>
+    <div id="editor-container">
+      <div id="line-numbers"></div>
+      <textarea id="input" placeholder="Enter axioms and proof statement here" spellcheck="false"></textarea>
     <button onclick="solveProblem()">Solve</button>
-    <textarea id="output" placeholder="Solution will appear here" spellcheck="false"></textarea>
+    <textarea id="output" placeholder="Solution will appear here" spellcheck="false" style="margin-left: 0px; width: 100%; margin-top: 20px;"></textarea>
+  </div>
     <footer>
       <!-- engine scripts -->
       <script src="JS\_.js"></script>
