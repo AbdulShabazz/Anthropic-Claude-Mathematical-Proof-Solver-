@@ -59,21 +59,33 @@ try {
         })();
 
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-            steps.map (step => `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiomID}`).join ('\n') +
+            steps.map ((step,i,me) => {
+                    switch(step.side) {
+                        case 'lhs':
+                        step.other = rhs;
+                        lhs = step.result;
+                        break;
+
+                        case 'rhs':
+                        step.other = lhs;
+                        rhs = step.result;
+                        break;
+                    }
+                    return `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiomID}`;
+                }).join ('\n') +
             (proofFound ? '\n\nQ.E.D.' : '');
 
         function applyRules (sides, action) {
             sides = sides.map ((current,idx,me) => {
                 let changed;
-                const other = idx == 0 ? me [1] : me [0] ;
                 const side = idx == 0 ? 'lhs' : 'rhs' ;
                 do {
                     changed = applyRule (current, axioms, action);
                     if (changed) {
-                        steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [...other] });
+                        steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [] });
                         current = changed.result;
                     }
-                } while (changed && current.join (' ') !== other.join (' '));
+                } while (changed);
                 return current;
             });
             return (sides [0].join (' ') == sides [1].join (' '));
