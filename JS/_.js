@@ -57,23 +57,28 @@ try {
             !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
             return ret;
         })();
-
+        
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-            steps.map ((step,i,me) => {
-                    switch(step.side) {
-                        case 'lhs':
-                        step.other = rhs;
-                        lhs = step.result;
-                        break;
-
-                        case 'rhs':
-                        step.other = lhs;
-                        rhs = step.result;
-                        break;
-                    }
-                    return `${step.side === 'lhs' ? step.result.join (' ') : step.other.join (' ')} = ${step.side === 'lhs' ? step.other.join (' ') : step.result.join (' ')}, (${step.side} ${step.action}) via ${step.axiomID}`;
-                }).join ('\n') +
-            (proofFound ? '\n\nQ.E.D.' : '');
+        steps
+            .map((step, i) => {
+                // update proofstep
+                const { side, result, action, axiomID } = step;
+                const isLHS = side === 'lhs';
+                const currentSide = isLHS ? result : lhs;
+                const otherSide = isLHS ? rhs : result;
+                
+                // update global expression
+                if (isLHS) {
+                    lhs = result;
+                } else {
+                    rhs = result;
+                }
+        
+                // return rewrite string
+                return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
+            })
+            .join('\n') +
+                (proofFound ? '\n\nQ.E.D.' : '');
 
         function applyRules (sides, action) {
             sides = sides.map ((current,idx,me) => {
