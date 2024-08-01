@@ -6,7 +6,7 @@ try {
     let lineNumbers = document.getElementById ('line-numbers');
 
     function solveProblem () {
-        rewriteHistoryProofFoundFlag = false;
+        output.value = "Working...";
         const {axioms, proofStatement} = parseInput (_input.value);
         const startTime = performance.now ();
         _output.value = generateProof (axioms, proofStatement);
@@ -44,18 +44,97 @@ try {
     } // end parseInput
 
     function generateProof (axioms, proofStatement) {
+        const NUM_WORKERS = 2;
+        const workerScript =
+`
+const self = this;
+self.addEventListener ('proofFoundEvent', (e) => {
+    //if (e.workerID != self.workerID)
+        self.terminate ();
+})
+`;
+        const blob = new Blob([workerScript], { type: 'application/javascript' });
+        //const worker = new Worker(URL.createObjectURL(blob));
+        //const workerURL = `JS/__.js`;        
+        //const workers = Array.from({ length: NUM_WORKERS }, () => new Worker(workerURL));
+        const workers = Array.from({ length: NUM_WORKERS }, () => new Worker(URL.createObjectURL(blob)));
+        workers.forEach((w,idx,me) => {
+            w.workerID = idx;
+        });
+
         let steps = [];
         let [lhs, rhs] = proofStatement
             .split (/[~<]?=+[>]?/g)
                 .map (s => s.trim ().split (/\s+/));
+    
+        const workerData = {
+            lhs: [...lhs],
+            rhs: [...rhs],
+            steps: [],
+            axioms: axioms
+        };
 
         const proofFound = (() => {
+            return new Promise  ((resolve, reject) => {
+                const HandleResponse = (e) => {
+                    const self = this;
+                    const { data, strategy } = e.data;
+                    const { lhs, rhs, axioms, steps } = data;
+                    const result = applyRules ([[...lhs], [...rhs]], strategy, axioms);
+                    self.postMessage({ proofFound: result, steps: result ? result.steps : [] });
+                    result && dispatchEvent(new CustomEvent('proofFoundEvent', { proof: e.data }));
+                    self.terminate();
+
+                    function applyRules (sides, action) {
+                        sides = sides.map ((current,idx,me) => {
+                            let changed;
+                            const side = idx == 0 ? 'lhs' : 'rhs' ;
+                            do {
+                                changed = applyRule (current, axioms, action);
+                                if (changed) {
+                                    steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [] });
+                                    current = changed.result;
+                                }
+                            } while (changed);
+                            return current;
+                        });
+                        return (sides [0].join (' ') == sides [1].join (' '));            
+            
+                        function applyRule (expression, axioms, action) {
+                            const I = axioms.length;
+                            for (let i = 0; i < I; i++) {
+                                const axiom = axioms [i];
+                                const [left, right] = axiom.subnets;
+                                const match = action === 'reduce' ? left : right;
+                                const replacer = action === 'reduce' ? right : left;
+                                const rewriteFound = expression._tryReplace (match, replacer);
+                                if (rewriteFound) {
+                                    return {
+                                        result: rewriteFound,
+                                        axiomID: axiom.axiomID,
+                                    };
+                                }
+                            }
+                            return null;
+                        } // end applyRule
+                    } // end applyRules
+                };
+                workers.forEach((w,i,me) => {
+                    w.onmessage = (e) => { HandleResponse (e); }; 
+                    w.postMessage ({
+                        data: structuredClone (workerData), 
+                        strategy: ['reduce', 'expand'][i % 2],
+                     });
+                })
+            });
+            /* 
             if (lhs.join (' ') == rhs.join (' '))
                 return true;
             let ret = applyRules ([[...lhs], [...rhs]],'reduce');
             ret == (lhs.join (' ') == rhs.join (' '));
             !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
-            return ret;
+            return ret; */
+
         })();
         
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
@@ -79,7 +158,7 @@ try {
             })
             .join('\n') +
                 (proofFound ? '\n\nQ.E.D.' : '');
-
+        /* 
         function applyRules (sides, action) {
             sides = sides.map ((current,idx,me) => {
                 let changed;
@@ -93,28 +172,28 @@ try {
                 } while (changed);
                 return current;
             });
-            return (sides [0].join (' ') == sides [1].join (' '));
-        } // end applyRules
+            return (sides [0].join (' ') == sides [1].join (' '));            
+
+            function applyRule (expression, axioms, action) {
+                const I = axioms.length;
+                for (let i = 0; i < I; i++) {
+                    const axiom = axioms [i];
+                    const [left, right] = axiom.subnets;
+                    const match = action === 'reduce' ? left : right;
+                    const replacer = action === 'reduce' ? right : left;
+                    const rewriteFound = expression._tryReplace (match, replacer);
+                    if (rewriteFound) {
+                        return {
+                            result: rewriteFound,
+                            axiomID: axiom.axiomID,
+                        };
+                    }
+                }
+                return null;
+            } // end applyRule
+        } // end applyRules */
 
     } // end generateProof
-
-    function applyRule (expression, axioms, action) {
-        const I = axioms.length;
-        for (let i = 0; i < I; i++) {
-            const axiom = axioms [i];
-            const [left, right] = axiom.subnets;
-            const match = action === 'reduce' ? left : right;
-            const replacer = action === 'reduce' ? right : left;
-            const rewriteFound = expression._tryReplace (match, replacer);
-            if (rewriteFound) {
-                return {
-                    result: rewriteFound,
-                    axiomID: axiom.axiomID,
-                };
-            }
-        }
-        return null;
-    } // end applyRule
 
     Object.prototype._tryReplace = function (from, to) {
         let ret = false;
