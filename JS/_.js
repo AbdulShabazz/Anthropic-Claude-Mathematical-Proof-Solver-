@@ -66,7 +66,7 @@ Object.prototype._tryReplace = function (from, to) {
     let tokenIDX = [];
     let rewriteFoundFlag;
     for (let tok of self) {
-        if (from [i] === tok){
+        if (tok == from [i]){
             tokenIDX.push (j);
             ++i;
         }
@@ -85,13 +85,16 @@ Object.prototype._tryReplace = function (from, to) {
     }
     if (!rewriteFoundFlag)
         return false;
-    self = self
+    let w = [];
+    self
         .join (' ')
             .split (/\s+/)
-                .filter (u => u)
-                    .map ((s,index,me) => s
-                        .trim ());
-    return self;
+                .forEach(s => {
+                    if (s != null) {
+                        w.push(...s.split(' '));
+                    }
+                });
+    return w;
 } // end Object.prototype._tryReplace
 `;
 
@@ -145,98 +148,65 @@ Object.prototype._tryReplace = function (from, to) {
                 .map (s => s.trim ().split (/\s+/));
 
         const startTime = performance.now ();
-
-        //const proofFound = (() => {
-            //return new Promise  ((resolve, reject) => {
     
-                let results = [];
-                let completedWorkersZ = 0;
+        let results = [];
+        let completedWorkersZ = 0;
 
-                const workerData = {
-                    lhs: [...lhs],
-                    rhs: [...rhs],
-                    steps: [],
-                    axioms: axioms
-                };
+        const strategy = ['reduce', 'expand'];
 
-                workers.forEach((w,idx,me) => {
-                    w.workerID = idx;
-                    w.postMessage ({
-                        data: structuredClone (workerData), 
-                        strategy: ['reduce', 'expand'][idx % 2],
-                     });
-                    w.onmessage = (e)=> {
-                        let bestResult;
-                        if (e.data?.proofFound != null) {
-                            completedWorkersZ++;
-                            results.push(e.data);
-                            if (e.data.proofFound == true) {
-                                bestResult = e.data;
-                                //resolve(e);
-                            } else if (completedWorkersZ == 2) {
-                                const resolveFirstFlag 
-                                    = (results[0].steps?.length 
-                                        >= results[1].steps?.length) ;
-                                bestResult = (resolveFirstFlag) ? results[0] : results[1];
-                            }
-                            if (bestResult) {
-                                const proofStackString = `${bestResult.proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-                                bestResult.steps
-                                    .map((step, i, thisArray) => {
-                                        // update proofstep
-                                        const { side, result, action, axiomID } = step;
-                                        const isLHS = side === 'lhs';
-                                        const currentSide = isLHS ? result : lhs;
-                                        const otherSide = isLHS ? rhs : result;
-                                        
-                                        // update global expression
-                                        if (isLHS) {
-                                            lhs = result;
-                                        } else {
-                                            rhs = result;
-                                        }
+        const workerData = {
+            lhs: [...lhs],
+            rhs: [...rhs],
+            steps: [],
+            axioms: axioms
+        };
+
+        workers.forEach((w,idx,me) => {
+            w.workerID = idx;
+            w.postMessage ({
+                data: structuredClone (workerData), 
+                strategy: strategy[idx],
+                });
+            w.onmessage = (e)=> {
+                let bestResult;
+                if (e.data?.proofFound != null) {
+                    completedWorkersZ++;
+                    results.push(e.data);
+                    if (e.data.proofFound == true) {
+                        bestResult = e.data;
+                    } else if (completedWorkersZ == 2) {
+                        const resolveFirstFlag 
+                            = (results[0].steps?.length 
+                                >= results[1].steps?.length) ;
+                        bestResult = (resolveFirstFlag) ? results[0] : results[1];
+                    }
+                    if (bestResult) {
+                        const proofStackString = `${bestResult.proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
+                        bestResult.steps
+                            .map((step, i, thisArray) => {
+                                // update proofstep
+                                const { side, result, action, axiomID } = step;
+                                const isLHS = side === 'lhs';
+                                const currentSide = isLHS ? result : lhs;
+                                const otherSide = isLHS ? rhs : result;
                                 
-                                        // return rewrite string
-                                        return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
-                                    })
-                                    .join('\n') +
-                                        (bestResult.proofFound ? '\n\nQ.E.D.' : '');
-                                _output.value = proofStackString + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
-                            } // end if (bestResult)
-                        } // end if (e.data?.proofFound != null) 
-                    }; // end onmessage
-                }); // end workers.forEach
-            //}); // end return new Promise
-
-        //});
-        /* 
-        proofFound().then ((rewriteResultObj) => {            
-            const proofStackString = `${rewriteResultObj.proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-                rewriteResultObj.steps
-                    .map((step, i, thisArray) => {
-                        // update proofstep
-                        const { side, result, action, axiomID } = step;
-                        const isLHS = side === 'lhs';
-                        const currentSide = isLHS ? result : lhs;
-                        const otherSide = isLHS ? rhs : result;
+                                // update global expression
+                                if (isLHS) {
+                                    lhs = result;
+                                } else {
+                                    rhs = result;
+                                }
                         
-                        // update global expression
-                        if (isLHS) {
-                            lhs = result;
-                        } else {
-                            rhs = result;
-                        }
-                
-                        // return rewrite string
-                        return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
-                    })
-                    .join('\n') +
-                        (proofFound ? '\n\nQ.E.D.' : '');
-            _output.value = proofStackString + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
-        }); // end proofFound
- */
-        return;
-
+                                // return rewrite string
+                                return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
+                            })
+                            .join('\n') +
+                                (bestResult.proofFound ? '\n\nQ.E.D.' : '');
+                        _output.value = proofStackString + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+                    } // end if (bestResult)
+                } // end if (e.data?.proofFound != null) 
+            }; // end onmessage
+            }); // end workers.forEach
     } // end generateProof
 
     function updateLineNumbers () {
