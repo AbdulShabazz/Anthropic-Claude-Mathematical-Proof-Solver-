@@ -16,8 +16,8 @@ self.onmessage = function (e) {
     const { data, strategy } = e.data;
     const { lhs, rhs, axioms, steps } = data;
     const result = applyRules ([[...lhs], [...rhs]], strategy, axioms);
-    postMessage('*', { proofFound: result, steps: steps?.length > 0 ? steps : [] });
-    result && document.dispatchEvent(new CustomEvent('proofFoundEvent', { workerID: self.workerID }));
+    self.postMessage({ proofFound: result, steps: steps?.length > 0 ? steps : [] });
+    result && self.dispatchEvent(new CustomEvent('proofFoundEvent', { workerID: self.workerID }));
     //self.terminate();
     return;
 
@@ -110,9 +110,7 @@ Object.prototype._tryReplace = function (from, to) {
     function solveProblem () {
         output.value = "Working...";
         const {axioms, proofStatement} = parseInput (_input.value);
-        const startTime = performance.now ();
-        _output.value = generateProof (axioms, proofStatement);
-        output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+        generateProof (axioms, proofStatement, _output);
     } // end solveProblem
 
     function parseInput(input) {
@@ -145,15 +143,20 @@ Object.prototype._tryReplace = function (from, to) {
         };
     } // end parseInput
 
-    function generateProof (axioms, proofStatement) {
+    function generateProof (axioms, proofStatement, _) {
         let steps = [];
         let [lhs, rhs] = proofStatement
             .split (/[~<]?=+[>]?/g)
                 .map (s => s.trim ().split (/\s+/));
 
+        const startTime = performance.now ();
+
         const proofFound = (() => {
             return new Promise  ((resolve, reject) => {
     
+                let results = [];
+                let completedWorkersZ = 0;
+
                 const workerData = {
                     lhs: [...lhs],
                     rhs: [...rhs],
@@ -167,8 +170,22 @@ Object.prototype._tryReplace = function (from, to) {
                         data: structuredClone (workerData), 
                         strategy: ['reduce', 'expand'][idx % 2],
                      });
-                })
-            });
+                    w.onmessage = (e)=> {
+                        if (e.data?.proofFound != null) {
+                            completedWorkersZ++;
+                            results.push(e.data);
+                            if (e.data.proofFound == true)
+                                resolve(e);
+                            else if (completedWorkersZ == 2) {
+                                const resolveFirstFlag 
+                                    = (results[0].steps?.length 
+                                        >= results[1].steps?.length) ;
+                                resolve(resolveFirstFlag ? results[0] : results[1]);
+                            }
+                        }
+                    }; // end onmessage
+                }); // end workers.forEach
+            }); // end return new Promise
             /* 
             if (lhs.join (' ') == rhs.join (' '))
                 return true;
@@ -179,31 +196,32 @@ Object.prototype._tryReplace = function (from, to) {
 
         });
         
-        proofFound.then ((resolve) => {
-            resolve;
-        });
-        
-        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-        steps
-            .map((step, i) => {
-                // update proofstep
-                const { side, result, action, axiomID } = step;
-                const isLHS = side === 'lhs';
-                const currentSide = isLHS ? result : lhs;
-                const otherSide = isLHS ? rhs : result;
+        proofFound().then ((rewriteResultObj) => {            
+            const proofStackString = `${rewriteResultObj.proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
+                rewriteResultObj.steps
+                    .map((step, i, thisArray) => {
+                        // update proofstep
+                        const { side, result, action, axiomID } = step;
+                        const isLHS = side === 'lhs';
+                        const currentSide = isLHS ? result : lhs;
+                        const otherSide = isLHS ? rhs : result;
+                        
+                        // update global expression
+                        if (isLHS) {
+                            lhs = result;
+                        } else {
+                            rhs = result;
+                        }
                 
-                // update global expression
-                if (isLHS) {
-                    lhs = result;
-                } else {
-                    rhs = result;
-                }
-        
-                // return rewrite string
-                return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
-            })
-            .join('\n') +
-                (proofFound ? '\n\nQ.E.D.' : '');
+                        // return rewrite string
+                        return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
+                    })
+                    .join('\n') +
+                        (proofFound ? '\n\nQ.E.D.' : '');
+            _output.value = proofStackString + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+        }); // end proofFound
+
+        return;
         /* 
         function applyRules (sides, action) {
             sides = sides.map ((current,idx,me) => {
