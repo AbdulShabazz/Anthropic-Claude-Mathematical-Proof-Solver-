@@ -97,12 +97,7 @@ Object.prototype._tryReplace = function (from, to) {
 
     const blob = new Blob([workerScript], { type: 'application/javascript' });
     const workers = Array.from({ length: NUM_WORKERS }, () => new Worker(URL.createObjectURL(blob)));
-/* 
-    this.addEventListener('proofFoundEvent', (e) => {
-        const { proofFound, steps } = e.data;
-        steps;
-    });
- */
+    
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
     let lineNumbers = document.getElementById ('line-numbers');
@@ -151,8 +146,8 @@ Object.prototype._tryReplace = function (from, to) {
 
         const startTime = performance.now ();
 
-        const proofFound = (() => {
-            return new Promise  ((resolve, reject) => {
+        //const proofFound = (() => {
+            //return new Promise  ((resolve, reject) => {
     
                 let results = [];
                 let completedWorkersZ = 0;
@@ -171,31 +166,50 @@ Object.prototype._tryReplace = function (from, to) {
                         strategy: ['reduce', 'expand'][idx % 2],
                      });
                     w.onmessage = (e)=> {
+                        let bestResult;
                         if (e.data?.proofFound != null) {
                             completedWorkersZ++;
                             results.push(e.data);
-                            if (e.data.proofFound == true)
-                                resolve(e);
-                            else if (completedWorkersZ == 2) {
+                            if (e.data.proofFound == true) {
+                                bestResult = e.data;
+                                //resolve(e);
+                            } else if (completedWorkersZ == 2) {
                                 const resolveFirstFlag 
                                     = (results[0].steps?.length 
                                         >= results[1].steps?.length) ;
-                                resolve(resolveFirstFlag ? results[0] : results[1]);
+                                bestResult = (resolveFirstFlag) ? results[0] : results[1];
                             }
-                        }
+                            if (bestResult) {
+                                const proofStackString = `${bestResult.proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
+                                bestResult.steps
+                                    .map((step, i, thisArray) => {
+                                        // update proofstep
+                                        const { side, result, action, axiomID } = step;
+                                        const isLHS = side === 'lhs';
+                                        const currentSide = isLHS ? result : lhs;
+                                        const otherSide = isLHS ? rhs : result;
+                                        
+                                        // update global expression
+                                        if (isLHS) {
+                                            lhs = result;
+                                        } else {
+                                            rhs = result;
+                                        }
+                                
+                                        // return rewrite string
+                                        return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
+                                    })
+                                    .join('\n') +
+                                        (bestResult.proofFound ? '\n\nQ.E.D.' : '');
+                                _output.value = proofStackString + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+                            } // end if (bestResult)
+                        } // end if (e.data?.proofFound != null) 
                     }; // end onmessage
                 }); // end workers.forEach
-            }); // end return new Promise
-            /* 
-            if (lhs.join (' ') == rhs.join (' '))
-                return true;
-            let ret = applyRules ([[...lhs], [...rhs]],'reduce');
-            ret == (lhs.join (' ') == rhs.join (' '));
-            !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
-            return ret; */
+            //}); // end return new Promise
 
-        });
-        
+        //});
+        /* 
         proofFound().then ((rewriteResultObj) => {            
             const proofStackString = `${rewriteResultObj.proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
                 rewriteResultObj.steps
@@ -220,42 +234,8 @@ Object.prototype._tryReplace = function (from, to) {
                         (proofFound ? '\n\nQ.E.D.' : '');
             _output.value = proofStackString + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
         }); // end proofFound
-
+ */
         return;
-        /* 
-        function applyRules (sides, action) {
-            sides = sides.map ((current,idx,me) => {
-                let changed;
-                const side = idx == 0 ? 'lhs' : 'rhs' ;
-                do {
-                    changed = applyRule (current, axioms, action);
-                    if (changed) {
-                        steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [] });
-                        current = changed.result;
-                    }
-                } while (changed);
-                return current;
-            });
-            return (sides [0].join (' ') == sides [1].join (' '));            
-
-            function applyRule (expression, axioms, action) {
-                const I = axioms.length;
-                for (let i = 0; i < I; i++) {
-                    const axiom = axioms [i];
-                    const [left, right] = axiom.subnets;
-                    const match = action === 'reduce' ? left : right;
-                    const replacer = action === 'reduce' ? right : left;
-                    const rewriteFound = expression._tryReplace (match, replacer);
-                    if (rewriteFound) {
-                        return {
-                            result: rewriteFound,
-                            axiomID: axiom.axiomID,
-                        };
-                    }
-                }
-                return null;
-            } // end applyRule
-        } // end applyRules */
 
     } // end generateProof
 
