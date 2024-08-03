@@ -3,11 +3,11 @@ try {
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
-    let lineNumbers = document.getElementById ('line-numbers');
+    let _lineNumbers = document.getElementById ('line-numbers');
 
     function solveProblem () {
         rewriteHistoryProofFoundFlag = false;
-        const {axioms, proofStatement} = parseInput (_input.value);
+        const { axioms, proofStatement } = parseInput (_input.value);
         const startTime = performance.now ();
         _output.value = generateProof (axioms, proofStatement);
         output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
@@ -145,19 +145,17 @@ try {
         }
         if (!rewriteFoundFlag)
             return false;
-        self = self
-            .join (' ')
-                .split (/\s+/)
-                    .filter (u => u)
-                        .map ((s,index,me) => s
-                            .trim ());
-        return self;
+        const rewriteString = self
+            .join(' ')
+                .match(/\S+/g) 
+                    || [];
+        return rewriteString;
     } // end Object.prototype._tryReplace
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
         let i = 1;
-        lineNumbers.innerHTML = lines
+        _lineNumbers.innerHTML = lines
             .map ((u, index) => /^[^\/\t\s\n]+/.test(u) ? i++ : '')
                 .join ('<br>');
     } // end updateLineNumbers
@@ -167,7 +165,7 @@ try {
     });
 
     _input.addEventListener ('scroll', function () {
-        lineNumbers.scrollTop = this.scrollTop;
+        _lineNumbers.scrollTop = this.scrollTop;
     });
 
     updateLineNumbers ();
