@@ -86,16 +86,11 @@ try {
         }
         if (!rewriteFoundFlag)
             return false;
-        let w = [];
-        self
-            .join (' ')
-                .split (/\s+/)
-                    .forEach(s => {
-                        if (s != null) {
-                            w.push(...s.split(' '));
-                        }
-                    });
-        return w;
+        const rewriteString = self
+            .join(' ')
+                .match(/\\S+/g) 
+                    || [];
+        return rewriteString;
     } // end Object.prototype._tryReplace
     `;
 
