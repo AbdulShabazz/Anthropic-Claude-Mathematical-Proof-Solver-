@@ -106,32 +106,36 @@ Object.prototype._tryReplace = function (from, to) {
     let lineNumbers = document.getElementById ('line-numbers');
 
     function solveProblem () {
-        output.value = "Working...";
         const {axioms, proofStatement} = parseInput (_input.value);
         generateProof (axioms, proofStatement, _output);
     } // end solveProblem
 
     function parseInput(input) {
-        let lines = input.split('\n').filter(line => line.trim() && !line.startsWith('//'));
+        let lines = input
+            .split('\n')
+                .filter(line => line.trim() && !line.startsWith('//'));
         let axioms = new Set ();
 
-        lines.slice(0, -1).forEach((line,k,thisArray) => {
-            const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
-            parts.forEach((part, i) => {
-                parts.slice(i + 1).forEach((otherPart, j, me) => {
-                    axioms.add({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
+        lines
+            .slice(0, -1)
+                .forEach((line,k,thisArray) => {
+                    const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
+                    parts.forEach((part, i) => {
+                        parts.slice(i + 1).forEach((otherPart, j, me) => {
+                            axioms.add({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
+                        });
+                    });
                 });
-            });
-        });
 
-        const sortedAxioms = Array.from(axioms)
-            .map(axiom => {
-                axiom.subnets = axiom.subnets
-                    .split(' = ')
-                        .sort((a, b) => a.length <= b.length)
-                            .map((pair,i,me) => pair.split(/\s+/));
-                return axiom;
-            });
+        const sortedAxioms = Array
+            .from(axioms)
+                .map(axiom => {
+                    axiom.subnets = axiom.subnets
+                        .split(' = ')
+                            .sort((a, b) => a.length <= b.length)
+                                .map((pair,i,me) => pair.split(/\s+/));
+                    return axiom;
+                });
 
         const proofStatement = lines[lines.length - 1];
 
