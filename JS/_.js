@@ -1,24 +1,21 @@
 
 try {
 
-    const NUM_WORKERS = 2;
-    const workerScript =
+    const NUM_WORKERS = 4;
+    const _workerScript = 
 `
 const self = this;
 self.proofFoundEvent = false;
 self.addEventListener ('proofFoundEvent', (e) => {    
     self.proofFoundEvent = true;
-    //if (e.workerID != self.workerID)
-        //self.terminate ();
 });
 self.onmessage = function (e) {
     self.proofFoundEvent = false;
     const { data, strategy } = e.data;
-    const { lhs, rhs, axioms, steps, proofStatement, startTime } = data;
+    ({ rewriteStrategy, subnet, lhs, rhs, axioms, steps, proofStatement, startTime } = data);
     const result = applyRules ([[...lhs], [...rhs]], strategy, axioms);
-    self.postMessage({ proofFound: result, steps: steps?.length > 0 ? steps : [], proofStatement, lhs, rhs, startTime });
-    result && self.dispatchEvent(new CustomEvent('proofFoundEvent', { workerID: self.workerID }));
-    //self.terminate();
+    self.postMessage({ proofFound: result, steps: steps?.length > 0 ? steps : [], proofStatement, rewriteStrategy, subnet, lhs, rhs, startTime });
+    //result && self.dispatchEvent(new CustomEvent('proofFoundEvent', { workerID: self.workerID }));
     return;
 
     function applyRules (sides, action) {
@@ -93,24 +90,80 @@ Object.prototype._tryReplace = function (from, to) {
 } // end Object.prototype._tryReplace
 `;
 
-    let results = [];
-    let completedWorkersZ = 0;
-    const blob = new Blob([workerScript], { type: 'application/javascript' });
+    let _results = new Map ();
+    let _allReduceCompletedWorkersZ = 0;
+    let _allExpandCompletedWorkersZ = 0;
+    const blob = new Blob([_workerScript], { type: 'application/javascript' });
     const workers = Array.from({ length: NUM_WORKERS }, (_,idx,me) => {
         let w = new Worker(URL.createObjectURL(blob));
         w.workerID = idx;
         w.onmessage = (e)=> {
-            let bestResult;
             if (e.data?.proofFound != null) {
-                completedWorkersZ++;
-                results.push(e.data);
-                if (e.data.proofFound == true) {
-                    bestResult = e.data;
-                } else if (completedWorkersZ == 2) {
-                    const resolveFirstFlag 
-                        = (results[0].steps?.length 
-                            >= results[1].steps?.length) ;
-                    bestResult = (resolveFirstFlag) ? results[0] : results[1];
+                let bestResult;
+                const tmpData = e.data; 
+                const tmpIndir = tmpData.rewriteStrategy;
+                const tmpCompletedWorkersZ = ((i) => {
+                    const retvalZ = (tmpIndir == 'reduce') ? ++_allReduceCompletedWorkersZ : ++_allExpandCompletedWorkersZ ;
+                    return retvalZ;
+                })(0);
+                const allWorkersCompleted = (_allReduceCompletedWorkersZ == 2 && _allExpandCompletedWorkersZ == 2);
+                if(_results.get (tmpIndir) == null)
+                    _results.set (tmpIndir, []);                    
+                const tmpResults = _results.get (tmpIndir);
+                tmpResults.push(tmpData);
+                if (tmpCompletedWorkersZ == 2) {
+                    if (allWorkersCompleted){
+                        const maxReduceExpandRewrites = ((x) => {
+                            const maxReduceRewritesZ = _results.get ('reduce')[0].steps.length 
+                                + _results.get ('reduce')[1].steps.length ;
+                            const maxExpandRewritesZ = _results.get ('expand')[0].steps.length 
+                                + _results.get ('expand')[1].steps.length ;
+                            return { maxReduceRewritesZ, maxExpandRewritesZ };
+                        })(0);
+                        const indirectionSZ = maxReduceExpandRewrites.maxReduceRewritesZ 
+                            > maxReduceExpandRewrites.maxExpandRewritesZ
+                            ? 'reduce'
+                            : 'expand' ;                            
+                        let localProofstepObj = structuredClone(_results.get (indirectionSZ)[0]);
+                        _results
+                            .get (indirectionSZ)[1]
+                                .steps
+                                    .forEach((tt,k,thisArray) => {
+                            localProofstepObj.steps.push(tt);
+
+                        });
+                        // Attach the other subnet to the partial-proof
+                        if (localProofstepObj.subnet == 'lhs'){
+                            localProofstepObj.rhs = _results.get (indirectionSZ)[1].rhs;
+                        } else {                                
+                            localProofstepObj.lhs = _results.get (indirectionSZ)[1].lhs;
+                        }
+                        bestResult = localProofstepObj;                        
+                    } // end if (allWorkersCompleted)
+                    const tmpLHS = tmpResults[0].subnet == 'lhs' 
+                        ? tmpResults[0] 
+                        : tmpResults[1] ;
+                    const tmpRHS = tmpResults[0].subnet == 'lhs' 
+                        ? tmpResults[1] 
+                        : tmpResults[0] ;
+                    const tmpLHSString = returnLastProofStepZ(tmpLHS.steps, tmpLHS.lhs);
+                    const tmpRHSString = returnLastProofStepZ(tmpRHS.steps, tmpRHS.rhs);
+                    const resolveFirstFlag = (tmpLHSString == tmpRHSString) ;
+                    if (resolveFirstFlag) {
+                        w.dispatchEvent(new CustomEvent('proofFoundEvent', { workerID: w.workerID }));
+                        tmpRHS.steps.forEach((u,jdx,metoo) => {
+                            tmpLHS.steps.push(u);
+                        });
+                        tmpLHS.proofFound = true;
+                        tmpLHS.rhs = tmpRHS.rhs;
+                        bestResult = tmpLHS;
+                    }
+
+                    function returnLastProofStepZ (tmpSteps,tmpSZArray) {
+                        if(tmpSteps?.length > 0)
+                            return tmpSteps._last().result.join (' ');
+                        return tmpSZArray.join (' ');
+                    }
                 }
                 if (bestResult) {
                     ({ lhs, rhs, proofStatement, startTime } = bestResult);
@@ -137,6 +190,7 @@ Object.prototype._tryReplace = function (from, to) {
                             (bestResult.proofFound ? '\n\nQ.E.D.' : '');
                     _output.value = proofStackString + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
                 } // end if (bestResult)
+                
             } // end if (e.data?.proofFound != null) 
         }; // end onmessage
         return w;
@@ -144,7 +198,13 @@ Object.prototype._tryReplace = function (from, to) {
     
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
-    let lineNumbers = document.getElementById ('line-numbers');
+    let _lineNumbers = document.getElementById ('line-numbers');
+
+    Array.prototype._last = function() {
+        const key = this.length - 1;
+        const val = this[key];
+        return val;
+    }
 
     function solveProblem () {
         const {axioms, proofStatement} = parseInput (_input.value);
@@ -190,28 +250,64 @@ Object.prototype._tryReplace = function (from, to) {
         let steps = [];
         let [lhs, rhs] = proofStatement
             .split (/[~<]?=+[>]?/g)
-                .map (s => s.trim ().split (/\s+/));
+                .map ((u,idx,me) => {
+                    const ret = u.match (/\S+/g);
+                    return ret;
+                });
 
-        //const startTime = performance.now ();
-    
-        /* let */ results = [];
-        /* let */ completedWorkersZ = 0;
+        /* let */ _results = new Map ();
+        /* let */ _allReduceCompletedWorkersZ = 0;
+        /* let */ _allExpandCompletedWorkersZ = 0;
+        const startTime = performance.now ();
 
-        const strategy = ['reduce', 'expand'];
-
-        const workerData = {
-            lhs: [...lhs],
-            rhs: [...rhs],
-            steps: [],
-            axioms: axioms,
-            proofStatement: proofStatement,
-            startTime: performance.now (),
-        };
+        const workerData = [
+            {
+                rewriteStrategy: 'reduce',
+                subnet: 'lhs',
+                lhs: lhs,
+                rhs: [],
+                steps: [],
+                axioms: axioms,
+                proofStatement: proofStatement,
+                startTime: startTime,
+            },
+            {
+                rewriteStrategy: 'reduce',
+                subnet: 'rhs',
+                lhs: [],
+                rhs: rhs,
+                steps: [],
+                axioms: axioms,
+                proofStatement: proofStatement,
+                startTime: startTime,
+            },
+            {
+                rewriteStrategy: 'expand',
+                subnet: 'lhs',
+                lhs: lhs,
+                rhs: [],
+                steps: [],
+                axioms: axioms,
+                proofStatement: proofStatement,
+                startTime: startTime,
+            },
+            {
+                rewriteStrategy: 'expand',
+                subnet: 'rhs',
+                lhs: [],
+                rhs: rhs,
+                steps: [],
+                axioms: axioms,
+                proofStatement: proofStatement,
+                startTime: startTime,
+            },
+        ];
 
         workers.forEach((w,idx,me) => {
+            const tmpwWorkerData = workerData[idx];
             w.postMessage ({
-                data: structuredClone (workerData), 
-                strategy: strategy[idx],
+                data: structuredClone (tmpwWorkerData),
+                strategy: tmpwWorkerData.rewriteStrategy,
             });
         }); // end workers.forEach
     } // end generateProof
@@ -219,7 +315,7 @@ Object.prototype._tryReplace = function (from, to) {
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
         let i = 1;
-        lineNumbers.innerHTML = lines
+        _lineNumbers.innerHTML = lines
             .map ((u, index) => /^[^\/\t\s\n]+/.test(u) ? i++ : '')
                 .join ('<br>');
     } // end updateLineNumbers
@@ -229,7 +325,7 @@ Object.prototype._tryReplace = function (from, to) {
     });
 
     _input.addEventListener ('scroll', function () {
-        lineNumbers.scrollTop = this.scrollTop;
+        _lineNumbers.scrollTop = this.scrollTop;
     });
 
     updateLineNumbers ();
