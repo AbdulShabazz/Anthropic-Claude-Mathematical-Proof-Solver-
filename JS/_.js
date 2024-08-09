@@ -306,7 +306,7 @@ Object.prototype._tryReplace = function (from, to) {
         workers.forEach((w,idx,me) => {
             const tmpwWorkerData = workerData[idx];
             w.postMessage ({
-                data: structuredClone (tmpwWorkerData),
+                data: tmpwWorkerData,
                 strategy: tmpwWorkerData.rewriteStrategy,
             });
         }); // end workers.forEach
