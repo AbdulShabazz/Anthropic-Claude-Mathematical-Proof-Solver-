@@ -214,6 +214,8 @@ Object.prototype._tryReplace = function (from, to) {
                 strategy: strategy[idx],
             });
         }); // end workers.forEach
+
+        _output.value = "Working...";
     } // end generateProof
 
     function updateLineNumbers () {
