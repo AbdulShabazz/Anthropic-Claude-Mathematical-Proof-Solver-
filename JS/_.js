@@ -90,9 +90,16 @@ Object.prototype._tryReplace = function (from, to) {
 } // end Object.prototype._tryReplace
 `;
 
+    // Create an ArrayBuffer to store the counters
+    const _sharedCounters = new Uint8Array(2);
+
+    // Index 0 for _allReduceCompletedWorkersZ, index 1 for _allExpandCompletedWorkersZ
+    const REDUCE_INDEX = 0;
+    const EXPAND_INDEX = 1;
+
     let _results = new Map ();
-    let _allReduceCompletedWorkersZ = 0;
-    let _allExpandCompletedWorkersZ = 0;
+    /* let _allReduceCompletedWorkersZ = 0; */
+    /* let _allExpandCompletedWorkersZ = 0; */
     const blob = new Blob([_workerScript], { type: 'application/javascript' });
     const workers = Array.from({ length: NUM_WORKERS }, (_,idx,me) => {
         let w = new Worker(URL.createObjectURL(blob));
@@ -102,11 +109,14 @@ Object.prototype._tryReplace = function (from, to) {
                 let bestResult;
                 const tmpData = e.data; 
                 const tmpIndir = tmpData.rewriteStrategy;
+                
                 const tmpCompletedWorkersZ = ((i) => {
-                    const retvalZ = (tmpIndir == 'reduce') ? ++_allReduceCompletedWorkersZ : ++_allExpandCompletedWorkersZ ;
+                    const retvalZ = (tmpIndir == 'reduce') 
+                        ? Atomics.add (_sharedCounters, REDUCE_INDEX, 1) + 1/* ++_allReduceCompletedWorkersZ */ 
+                        : Atomics.add (_sharedCounters, EXPAND_INDEX, 1) + 1/* ++_allExpandCompletedWorkersZ */ ;
                     return retvalZ;
                 })(0);
-                const allWorkersCompleted = (_allReduceCompletedWorkersZ == 2 && _allExpandCompletedWorkersZ == 2);
+                const allWorkersCompleted = (Atomics.load (_sharedCounters, REDUCE_INDEX)/* _allReduceCompletedWorkersZ */ == 2 && Atomics.load (_sharedCounters, EXPAND_INDEX)/* _allExpandCompletedWorkersZ */ == 2);
                 if(_results.get (tmpIndir) == null)
                     _results.set (tmpIndir, []);                    
                 const tmpResults = _results.get (tmpIndir);
@@ -255,9 +265,10 @@ Object.prototype._tryReplace = function (from, to) {
                     return ret;
                 });
 
+        /* let */ _sharedCounters[0] = _sharedCounters[1] = 0;
         /* let */ _results = new Map ();
-        /* let */ _allReduceCompletedWorkersZ = 0;
-        /* let */ _allExpandCompletedWorkersZ = 0;
+        /* let _allReduceCompletedWorkersZ = 0; */
+        /* let _allExpandCompletedWorkersZ = 0; */
         const startTime = performance.now ();
 
         const workerData = [
