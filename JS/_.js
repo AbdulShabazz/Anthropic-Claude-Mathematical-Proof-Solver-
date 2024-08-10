@@ -15,7 +15,6 @@ self.onmessage = function (e) {
     ({ rewriteStrategy, subnet, lhs, rhs, axioms, steps, proofStatement, startTime } = data);
     const result = applyRules ([[...lhs], [...rhs]], strategy, axioms);
     self.postMessage({ proofFound: result, steps: steps?.length > 0 ? steps : [], proofStatement, rewriteStrategy, subnet, lhs, rhs, startTime });
-    //result && self.dispatchEvent(new CustomEvent('proofFoundEvent', { workerID: self.workerID }));
     return;
 
     function applyRules (sides, action) {
@@ -111,9 +110,12 @@ Object.prototype._tryReplace = function (from, to) {
                 const tmpIndir = tmpData.rewriteStrategy;
                 
                 const tmpCompletedWorkersZ = ((i) => {
+                    (tmpIndir == 'reduce') 
+                        ? Atomics.add (_sharedCounters, REDUCE_INDEX, 1) /* ++_allReduceCompletedWorkersZ */ 
+                        : Atomics.add (_sharedCounters, EXPAND_INDEX, 1) /* ++_allExpandCompletedWorkersZ */ ;
                     const retvalZ = (tmpIndir == 'reduce') 
-                        ? Atomics.add (_sharedCounters, REDUCE_INDEX, 1) + 1/* ++_allReduceCompletedWorkersZ */ 
-                        : Atomics.add (_sharedCounters, EXPAND_INDEX, 1) + 1/* ++_allExpandCompletedWorkersZ */ ;
+                        ? Atomics.load (_sharedCounters, REDUCE_INDEX) /* ++_allReduceCompletedWorkersZ */ 
+                        : Atomics.load (_sharedCounters, EXPAND_INDEX) /* ++_allExpandCompletedWorkersZ */ ;
                     return retvalZ;
                 })(0);
                 const allWorkersCompleted = (Atomics.load (_sharedCounters, REDUCE_INDEX)/* _allReduceCompletedWorkersZ */ == 2 && Atomics.load (_sharedCounters, EXPAND_INDEX)/* _allExpandCompletedWorkersZ */ == 2);
@@ -321,6 +323,8 @@ Object.prototype._tryReplace = function (from, to) {
                 strategy: tmpwWorkerData.rewriteStrategy,
             });
         }); // end workers.forEach
+
+        _output.value = "Working...";
     } // end generateProof
 
     function updateLineNumbers () {
