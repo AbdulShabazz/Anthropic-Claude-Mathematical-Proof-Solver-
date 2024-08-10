@@ -94,7 +94,7 @@ Object.prototype._tryReplace = function (from, to) {
 `;
 
     let results = [];
-    let completedWorkersZ = 0;
+    const _completedWorkersZ = new Uint32Array(1);
     const blob = new Blob([workerScript], { type: 'application/javascript' });
     const workers = Array.from({ length: NUM_WORKERS }, (_,idx,me) => {
         let w = new Worker(URL.createObjectURL(blob));
@@ -102,11 +102,11 @@ Object.prototype._tryReplace = function (from, to) {
         w.onmessage = (e)=> {
             let bestResult;
             if (e.data?.proofFound != null) {
-                completedWorkersZ++;
+                Atomics.add (_completedWorkersZ,0,1);
                 results.push(e.data);
                 if (e.data.proofFound == true) {
                     bestResult = e.data;
-                } else if (completedWorkersZ == 2) {
+                } else if (Atomics.load(_completedWorkersZ,0) == 2) {
                     const resolveFirstFlag 
                         = (results[0].steps?.length 
                             >= results[1].steps?.length) ;
@@ -195,7 +195,7 @@ Object.prototype._tryReplace = function (from, to) {
         //const startTime = performance.now ();
     
         /* let */ results = [];
-        /* let */ completedWorkersZ = 0;
+        /* let */ _completedWorkersZ[0] = 0;
 
         const strategy = ['reduce', 'expand'];
 
