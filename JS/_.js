@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark (university-step) 11ms */
+    /** Benchmark 5ms */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -123,7 +123,7 @@ try {
         if (from.length > this.length)
             return false;
         let i = 0;
-        const J = this.length;
+        let J = this.length;
         let self = [...this];
         let rewriteFoundFlag;
         for (let j=0; j<J; j++) {
@@ -134,6 +134,7 @@ try {
                 if (doRepFlag){
                     self.splice (j, 0, ...to);
                     i = 0;
+                    J += to.length;
                     doRepFlag = false;
                     !rewriteFoundFlag && (rewriteFoundFlag = true);
                 }
