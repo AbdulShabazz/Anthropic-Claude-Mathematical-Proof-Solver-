@@ -1,6 +1,8 @@
 
 try {
 
+    /** Benchmark 3ms */
+
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
     let _lineNumbers = document.getElementById ('line-numbers');
@@ -13,29 +15,29 @@ try {
         output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
     } // end solveProblem
 
-    function parseInput(input) {
-        let lines = input.split('\n').filter(line => line.trim() && !line.startsWith('//'));
+    function parseInput (input) {
+        let lines = input.split ('\n').filter (line => line.trim () && !line.startsWith ('//'));
         let axioms = new Set ();
 
-        lines.slice(0, -1).forEach((line,k,thisArray) => {
-            const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
-            parts.forEach((part, i) => {
-                parts.slice(i + 1).forEach((otherPart, j, me) => {
-                    axioms.add({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
+        lines.slice (0, -1).forEach ((line,k,thisArray) => {
+            const parts = line.split (/[~<]?=+[>]?/g).map (s => s.trim ());
+            parts.forEach ((part, i) => {
+                parts.slice (i + 1).forEach ((otherPart, j, me) => {
+                    axioms.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
                 });
             });
         });
 
-        const sortedAxioms = Array.from(axioms)
-            .map(axiom => {
+        const sortedAxioms = Array.from (axioms)
+            .map (axiom => {
                 axiom.subnets = axiom.subnets
-                    .split(' = ')
-                        .sort((a, b) => a.length <= b.length)
-                            .map((pair,i,me) => pair.match(/\S+/g));
+                    .split (' = ')
+                        .sort ((a, b) => a.length <= b.length)
+                            .map ((pair,i,me) => pair.match (/\S+/g));
                 return axiom;
             });
 
-        const proofStatement = lines[lines.length - 1];
+        const proofStatement = lines [lines.length - 1];
 
         return {
             axioms: sortedAxioms,
@@ -60,7 +62,7 @@ try {
         
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
         steps
-            .map((step, i) => {
+            .map ((step, i) => {
                 // update proofstep
                 const { side, result, action, axiomID } = step;
                 const isLHS = side === 'lhs';
@@ -75,9 +77,9 @@ try {
                 }
         
                 // return rewrite string
-                return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
+                return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
             })
-            .join('\n') +
+            .join ('\n') +
                 (proofFound ? '\n\nQ.E.D.' : '');
 
         function applyRules (sides, action) {
@@ -121,34 +123,36 @@ try {
         if (from.length > this.length)
             return false;
         let i = 0;
-        let j = 0;
+        const J = this.length;
         let self = [...this];
         const _to = to.join (' ');
-        let tokenIDX = [];
+        //let tokenIDX = [];
         let rewriteFoundFlag;
-        for (let tok of self) {
+        for (let j=0; j<J; j++) {
+            const tok = self[j];
             if (from [i] === tok){
-                tokenIDX.push (j);
-                ++i;
+                self [j] = '';
+                //tokenIDX.push (j);
+                !ret && (ret = (from.length == ++i));
             }
-            !ret && (ret = (from.length == i));
             if (ret){
+                /* 
                 tokenIDX.forEach ((k,idx,me) => {
                     self [k] = '';
                 });
+                */
                 self [j] = _to;
                 i = 0;
                 ret = false;
-                tokenIDX = [];
+                //tokenIDX = [];
                 !rewriteFoundFlag && (rewriteFoundFlag = true);
             }
-            ++j;
-        }
+        } // end for (let j=0; j<j; j++)
         if (!rewriteFoundFlag)
             return false;
         const rewriteString = self
-            .join(' ')
-                .match(/\S+/g) 
+            .join (' ')
+                .match (/\S+/g) 
                     || [];
         return rewriteString;
     } // end Object.prototype._tryReplace
@@ -157,7 +161,7 @@ try {
         const lines = _input.value.split ('\n');
         let i = 1;
         _lineNumbers.innerHTML = lines
-            .map ((u, index) => /^[^\/\t\s\n]+/.test(u) ? i++ : '')
+            .map ((u, index) => /^[^\/\t\s\n]+/.test (u) ? i++ : '')
                 .join ('<br>');
     } // end updateLineNumbers
 
