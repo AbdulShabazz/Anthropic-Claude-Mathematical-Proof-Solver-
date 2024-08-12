@@ -1,31 +1,8 @@
 
 try {
 
-    /** Benchmark: ????ms */
-    
-    /*
-    const _workerReplacerScriptSZ = `
-(e) => {
-    ({ replacerStringSZ } = e.data);
-    self.postMessage ({ replacerStringSZ });
-}`;
-    */
-    const _num_workersZ = 500;
-    const _workerScriptSZ = `
-let self = this;
-self.onmessage = (e) => {
-    self.postMessage (e.data);
-};`;
+    /** Benchmark 11ms */
 
-    const _blobSZ = new Blob ([_workerScriptSZ], { type: 'application/javascript' });
-    const _workers = Array.from ({ length: _num_workersZ }, (_,idx,me) => {
-        let w = new Worker (URL.createObjectURL (_blobSZ));
-        w.workerID = `globalThread_${idx}`;
-        w.onmessage = (e) => {
-            // default //
-        };
-        return w;
-    });
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
     let _lineNumbers = document.getElementById ('line-numbers');
@@ -34,8 +11,8 @@ self.onmessage = (e) => {
         rewriteHistoryProofFoundFlag = false;
         const { axioms, proofStatement } = parseInput (_input.value);
         const startTime = performance.now ();
-        _output.value = generateProof (axioms, proofStatement)
-            + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+        _output.value = generateProof (axioms, proofStatement);
+        output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
     } // end solveProblem
 
     function parseInput (input) {
@@ -72,7 +49,7 @@ self.onmessage = (e) => {
         let steps = [];
         let [lhs, rhs] = proofStatement
             .split (/[~<]?=+[>]?/g)
-                .map (pair => pair.match (/\S+/g));
+                .map (s => s.trim ().split (/\s+/));
 
         const proofFound = (() => {
             if (lhs.join (' ') == rhs.join (' '))
@@ -84,26 +61,26 @@ self.onmessage = (e) => {
         })();
         
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-            steps
-                .map ((step, i) => {
-                    // update proofstep
-                    const { side, result, action, axiomID } = step;
-                    const isLHS = side === 'lhs';
-                    const currentSide = isLHS ? result : lhs;
-                    const otherSide = isLHS ? rhs : result;
-                    
-                    // update global expression
-                    if (isLHS) {
-                        lhs = result;
-                    } else {
-                        rhs = result;
-                    }
-            
-                    // return rewrite string
-                    return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
-                })
-                .join ('\n') +
-                    (proofFound ? '\n\nQ.E.D.' : '');
+        steps
+            .map ((step, i) => {
+                // update proofstep
+                const { side, result, action, axiomID } = step;
+                const isLHS = side === 'lhs';
+                const currentSide = isLHS ? result : lhs;
+                const otherSide = isLHS ? rhs : result;
+                
+                // update global expression
+                if (isLHS) {
+                    lhs = result;
+                } else {
+                    rhs = result;
+                }
+        
+                // return rewrite string
+                return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
+            })
+            .join ('\n') +
+                (proofFound ? '\n\nQ.E.D.' : '');
 
         function applyRules (sides, action) {
             sides = sides.map ((current,idx,me) => {
@@ -141,110 +118,35 @@ self.onmessage = (e) => {
         return null;
     } // end applyRule
 
-    Object.prototype._tryReplace = async function (from, to) {
-        let rep = false;
+    Object.prototype._tryReplace = function (from, to) {
+        let doRepFlag = false;
         if (from.length > this.length)
             return false;
         let i = 0;
         const J = this.length;
         let self = [...this];
-        let tokenIDX = [];
-        let replacerIDX = [];
+        const _to = to.join (' ');
+        let rewriteString = '';
         let rewriteFoundFlag;
         for (let j=0; j<J; j++) {
-            if (tok == from [i]){
-                !rep && (rep = (from.length == ++i));
-                if (rep){
-                    replacerIDX.push (j);
+            const tok = self[j];
+            if (from [i] === tok){
+                !doRepFlag && (doRepFlag = (from.length == ++i));                
+                if (doRepFlag){
+                    rewriteString += `${_to} `;
                     i = 0;
-                    rep = false;
+                    doRepFlag = false;
                     !rewriteFoundFlag && (rewriteFoundFlag = true);
-                } else {
-                    tokenIDX.push (j);
                 }
+            } else {
+                rewriteString += `${tok} `;
             }
-        }
+        } // end for (let j=0; j<J; j++)
         if (!rewriteFoundFlag)
             return false;
-        
-        const replaceSZ = to.join (' ');
-        
-        return (await Promise.all ([
-            processIndicesInParallel (tokenIDX),
-            processIndicesInParallel (replacerIDX, replaceSZ),
-        ])).then (() => {
-            return self
-                .join (' ')
-                    .match (/\S+/g) || [];
-        });
-
-        function processIndicesInParallel (indices, replacerSZ = '') {
-            /* 
-            const chunkSize = Math.ceil (indices.length / _workers.length);
-            const chunks = [];
-        
-            for (let i = 0; i < indices.length; i += chunkSize) {
-                chunks.push (indices.slice (i, i + chunkSize));
-            }
-            */
-
-            let availableWorkers = [..._workers];
-        
-            const promises = /* chunks */indices.map (chunk => {
-                return new Promise ((resolve, reject) => {
-                    const worker = availableWorkers.pop ();
-                    worker.onmessage = (event) => {
-                        const { indices, replacerSZ } = event.data;
-                        indices.forEach (idx => {
-                            self [idx] = replacerSZ;
-                        });
-                        resolve ();
-                    };
-                    worker.onerror = reject;
-                    worker.postMessage ({ indices: chunk, replacerSZ });
-                });
-            });
-        
-            return Promise
-                .all (promises)
-                    .then (results => {
-                // Combine results if needed
-                //console.log ('All chunks processed');
-            });
-        }
-        
-        /* 
-        // Example usage
-        const indices = Array.from ({ length: 10000 }, (_, i) => i);
-        processIndicesParallel (indices, 'replacement').then (() => {
-            console.log ('Processing complete');
-        });
-         */
-
-        /* 
-        function processIndices (indices, replaceSZ = '') {
-            return Promise.all (indices.map (idx => {
-                return new Promise ((resolve) => {
-                    while (_workers.length < idx) {
-                        let worker = new Worker (URL.createObjectURL (_blobSZ));
-                        worker.workerID = `globalThread_${idx}`;
-                        worker.onmessage = (e) => {
-                            // default //
-                        };
-                        _workers.push (worker);
-                    } // end while (_workers.length < idx)
-                    let tmpWorker = _workers [idx];
-                    tmpWorker.onmessage = (e) => {
-                        const { index, replaceSZ } = e.data;
-                        self [index] = replaceSZ;
-                        //worker.terminate (); // Clean up
-                        resolve ();
-                    };
-                    tmpWorker.postMessage ({ index: idx, replaceSZ });
-                });
-            }));
-        } // end processIndices
-    */
+        return rewriteString
+            .match (/\S+/g) 
+                || [];
     } // end Object.prototype._tryReplace
 
     function updateLineNumbers () {
