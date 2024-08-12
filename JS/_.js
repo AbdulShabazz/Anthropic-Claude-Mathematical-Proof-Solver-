@@ -119,35 +119,27 @@ try {
     } // end applyRule
 
     Object.prototype._tryReplace = function (from, to) {
-        let ret = false;
+        let doRepFlag = false;
         if (from.length > this.length)
             return false;
         let i = 0;
         const J = this.length;
         let self = [...this];
         const _to = to.join (' ');
-        //let tokenIDX = [];
         let rewriteFoundFlag;
         for (let j=0; j<J; j++) {
             const tok = self[j];
             if (from [i] === tok){
                 self [j] = '';
-                //tokenIDX.push (j);
-                !ret && (ret = (from.length == ++i));
+                !doRepFlag && (doRepFlag = (from.length == ++i));                
+                if (doRepFlag){
+                    self [j] = _to;
+                    i = 0;
+                    doRepFlag = false;
+                    !rewriteFoundFlag && (rewriteFoundFlag = true);
+                }
             }
-            if (ret){
-                /* 
-                tokenIDX.forEach ((k,idx,me) => {
-                    self [k] = '';
-                });
-                */
-                self [j] = _to;
-                i = 0;
-                ret = false;
-                //tokenIDX = [];
-                !rewriteFoundFlag && (rewriteFoundFlag = true);
-            }
-        } // end for (let j=0; j<j; j++)
+        } // end for (let j=0; j<J; j++)
         if (!rewriteFoundFlag)
             return false;
         const rewriteString = self
