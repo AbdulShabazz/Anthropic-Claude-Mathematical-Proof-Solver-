@@ -1,6 +1,8 @@
 
 try {
 
+    /** Benchmark: 4ms */
+    
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
     let _lineNumbers = document.getElementById ('line-numbers');
@@ -9,8 +11,8 @@ try {
         rewriteHistoryProofFoundFlag = false;
         const { axioms, proofStatement } = parseInput (_input.value);
         const startTime = performance.now ();
-        _output.value = generateProof (axioms, proofStatement);
-        output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+        _output.value = generateProof (axioms, proofStatement)
+            + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
     } // end solveProblem
 
     function parseInput(input) {
@@ -47,7 +49,7 @@ try {
         let steps = [];
         let [lhs, rhs] = proofStatement
             .split (/[~<]?=+[>]?/g)
-                .map (s => s.trim ().split (/\s+/));
+                .map (pair => pair.match (/\S+/g));
 
         const proofFound = (() => {
             if (lhs.join (' ') == rhs.join (' '))
@@ -59,26 +61,26 @@ try {
         })();
         
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-        steps
-            .map((step, i) => {
-                // update proofstep
-                const { side, result, action, axiomID } = step;
-                const isLHS = side === 'lhs';
-                const currentSide = isLHS ? result : lhs;
-                const otherSide = isLHS ? rhs : result;
-                
-                // update global expression
-                if (isLHS) {
-                    lhs = result;
-                } else {
-                    rhs = result;
-                }
-        
-                // return rewrite string
-                return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
-            })
-            .join('\n') +
-                (proofFound ? '\n\nQ.E.D.' : '');
+            steps
+                .map((step, i) => {
+                    // update proofstep
+                    const { side, result, action, axiomID } = step;
+                    const isLHS = side === 'lhs';
+                    const currentSide = isLHS ? result : lhs;
+                    const otherSide = isLHS ? rhs : result;
+                    
+                    // update global expression
+                    if (isLHS) {
+                        lhs = result;
+                    } else {
+                        rhs = result;
+                    }
+            
+                    // return rewrite string
+                    return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
+                })
+                .join('\n') +
+                    (proofFound ? '\n\nQ.E.D.' : '');
 
         function applyRules (sides, action) {
             sides = sides.map ((current,idx,me) => {
@@ -117,40 +119,50 @@ try {
     } // end applyRule
 
     Object.prototype._tryReplace = function (from, to) {
-        let ret = false;
+        let rep = false;
         if (from.length > this.length)
             return false;
         let i = 0;
         let j = 0;
         let self = [...this];
-        const _to = to.join (' ');
         let tokenIDX = [];
+        let replacerIDX = [];
         let rewriteFoundFlag;
         for (let tok of self) {
-            if (from [i] === tok){
-                tokenIDX.push (j);
-                ++i;
-            }
-            !ret && (ret = (from.length == i));
-            if (ret){
-                tokenIDX.forEach ((k,idx,me) => {
-                    self [k] = '';
-                });
-                self [j] = _to;
-                i = 0;
-                ret = false;
-                tokenIDX = [];
-                !rewriteFoundFlag && (rewriteFoundFlag = true);
+            if (tok == from [i]){
+                !rep && (rep = (from.length == ++i));
+                if (rep){
+                    replacerIDX.push (j);
+                    i = 0;
+                    rep = false;
+                    !rewriteFoundFlag && (rewriteFoundFlag = true);
+                } else {
+                    tokenIDX.push (j);
+                }
             }
             ++j;
         }
+        
         if (!rewriteFoundFlag)
             return false;
+        
+        const replaceSZ = to.join(' ');
+        
+        processIndices(tokenIDX),
+        processIndices(replacerIDX, replaceSZ);
+        
         const rewriteString = self
             .join(' ')
-                .match(/\S+/g) 
-                    || [];
+                .match(/\S+/g) || [];
+        
         return rewriteString;
+        
+        function processIndices (indices, replacerSZ = '') {
+            indices.forEach(idx => {
+                self[idx] = replacerSZ;
+            });
+        }
+
     } // end Object.prototype._tryReplace
 
     function updateLineNumbers () {
