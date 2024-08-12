@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 3ms */
+    /** Benchmark (university-step) 11ms */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -125,7 +125,6 @@ try {
         let i = 0;
         const J = this.length;
         let self = [...this];
-        const _to = to.join (' ');
         let rewriteFoundFlag;
         for (let j=0; j<J; j++) {
             const tok = self[j];
@@ -133,7 +132,7 @@ try {
                 self [j] = '';
                 !doRepFlag && (doRepFlag = (from.length == ++i));                
                 if (doRepFlag){
-                    self [j] = _to;
+                    self.splice (j, 0, ...to);
                     i = 0;
                     doRepFlag = false;
                     !rewriteFoundFlag && (rewriteFoundFlag = true);
@@ -143,9 +142,8 @@ try {
         if (!rewriteFoundFlag)
             return false;
         const rewriteString = self
-            .join (' ')
-                .match (/\S+/g) 
-                    || [];
+            .filter (x => x != '') 
+                || [];
         return rewriteString;
     } // end Object.prototype._tryReplace
 
