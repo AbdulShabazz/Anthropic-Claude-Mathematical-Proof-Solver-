@@ -31,7 +31,7 @@ try {
                 axiom.subnets = axiom.subnets
                     .split(' = ')
                         .sort((a, b) => a.length <= b.length)
-                            .map((pair,i,me) => pair.split(/\s+/));
+                            .map((pair,i,me) => pair.match(/\S+/g));
                 return axiom;
             });
 
@@ -123,6 +123,7 @@ try {
         let i = 0;
         let j = 0;
         let self = [...this];
+        const _to = to.join (' ');
         let tokenIDX = [];
         let rewriteFoundFlag;
         for (let tok of self) {
@@ -135,7 +136,7 @@ try {
                 tokenIDX.forEach ((k,idx,me) => {
                     self [k] = '';
                 });
-                self [j] = to.join (' ');
+                self [j] = _to;
                 i = 0;
                 ret = false;
                 tokenIDX = [];
