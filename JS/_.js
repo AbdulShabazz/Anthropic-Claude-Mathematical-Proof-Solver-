@@ -123,17 +123,14 @@ try {
       
         let self = [...this];
         const I = from.length;
-        let J = self.length;
-        const J2 = to.length;
         let rewriteFoundFlag = false;
         let i = 0;
       
-        for (let j = 0; j < J; j++) {
+        for (let j = 0; j < self.length; j++) {
             if (from [i] == self [j]) {
                 self [j] = '';
                 if (++i == I) {
                     self.splice (j, 0, ...to);
-                    J = self.length;
                     i = 0;
                     rewriteFoundFlag = true;
                 }
