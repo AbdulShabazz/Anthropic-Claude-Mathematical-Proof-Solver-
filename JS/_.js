@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 3ms */
+    /** Benchmark 1ms */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -117,37 +117,35 @@ try {
         }
         return null;
     } // end applyRule
-
-    Object.prototype._tryReplace = function (from, to) {
-        let doRepFlag = false;
-        if (from.length > this.length)
-            return false;
-        let i = 0;
-        const J = this.length;
+    
+    Object.prototype._tryReplace = function(from, to) {
+        if (from.length > this.length) return false;
+      
         let self = [...this];
-        const _to = to.join (' ');
-        let rewriteFoundFlag;
-        for (let j=0; j<J; j++) {
-            const tok = self[j];
-            if (from [i] === tok){
+        const I = from.length;
+        let J = self.length;
+        const J2 = to.length;
+        let rewriteFoundFlag = false;
+        let i = 0;
+      
+        for (let j = 0; j < J; j++) {
+            if (from [i] == self [j]) {
                 self [j] = '';
-                !doRepFlag && (doRepFlag = (from.length == ++i));                
-                if (doRepFlag){
-                    self [j] = _to;
+                if (++i == I) {
+                    self.splice (j, 0, ...to);
+                    J = self.length;
                     i = 0;
-                    doRepFlag = false;
-                    !rewriteFoundFlag && (rewriteFoundFlag = true);
+                    rewriteFoundFlag = true;
                 }
             }
-        } // end for (let j=0; j<J; j++)
-        if (!rewriteFoundFlag)
-            return false;
-        const rewriteString = self
-            .join (' ')
-                .match (/\S+/g) 
-                    || [];
-        return rewriteString;
-    } // end Object.prototype._tryReplace
+        }
+
+        const rewriteSZArray = rewriteFoundFlag 
+            ? self.filter (Boolean) 
+            : false ;
+
+        return rewriteSZArray;
+    }
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
