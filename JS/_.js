@@ -171,7 +171,7 @@ try {
         return rewriteFoundFlag
             ? rewriteSZArray
             : false;
-    }
+    } // end Object.prototype._tryReplace
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
