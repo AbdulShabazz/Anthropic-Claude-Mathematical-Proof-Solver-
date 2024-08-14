@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark (university-step) 18ms (test case 246) */
+    /** Benchmark (university-step) 15ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -12,7 +12,7 @@ try {
         const { axioms, proofStatement } = parseInput (_input.value);
         const startTime = performance.now ();
         _output.value = generateProof (axioms, proofStatement);
-        output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+        _output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
     } // end solveProblem
 
     function parseInput (input) {
@@ -149,33 +149,31 @@ try {
     } // end Object.prototype._scope_satisfied
 
     Object.prototype._tryReplace = function (from, to) {
-        let doRepFlag = false;
         if (from.length > this.length)
             return false;
         let i = 0;
         const J = this.length;
-        let self = [...this];
+        const rewriteSZArray = [];
         let rewriteFoundFlag;
+        const boundScopeSatisfied = (tok,j,i) =>
+            from[i] == this[j]
+                && this._scope_satisfied(tok, this, j, from, i);        
         for (let j=0; j<J; j++) {
-            const tok = self[j];
-            if (self._scope_satisfied(tok,self,j,from,i) 
-                    && from [i] === tok){
-                self [j] = '';
-                !doRepFlag && (doRepFlag = (from.length == ++i));                
-                if (doRepFlag){
-                    self.splice (j, 0, ...to);
+            const tok = this[j];
+            if (!rewriteFoundFlag && boundScopeSatisfied (tok,j,i)) {
+                if (from.length == ++i) {
+                    rewriteSZArray.push (...to);
                     i = 0;
-                    doRepFlag = false;
                     !rewriteFoundFlag && (rewriteFoundFlag = true);
-                }
+                    continue;
+                }    
+            } else {
+                rewriteSZArray.push (tok);
             }
         } // end for (let j=0; j<J; j++)
-        if (!rewriteFoundFlag)
-            return false;
-        const rewriteString = self
-            .filter (x => x != '') 
-                || [];
-        return rewriteString;
+        return rewriteFoundFlag
+            ? rewriteSZArray
+            : false;
     } // end Object.prototype._tryReplace
 
     function updateLineNumbers () {
