@@ -153,20 +153,25 @@ try {
 
         let i = 0;
         const I = from.length;
-        let rewriteSZArray = [];
+        const rewriteSZArray = [];
         let rewriteFoundFlag = false;
-        this.forEach ((tok, j, me) => {
-            if (this._scope_satisfied(tok,me,j,from,i) 
-                    && from [i] == tok) {
-                if (++i == I) {
+        const boundScopeSatisfied = (tok,j,i) =>
+            from[i] == this[j]
+                && this._scope_satisfied(tok, this, j, from, i);
+
+        for (let j = 0; j < this.length; j++) {
+            const tok = this [j];
+            if (boundScopeSatisfied (tok, j, i)) {
+                if (++i === I) {
                     i = 0;
                     rewriteSZArray.push (...to);
                     rewriteFoundFlag = true;
+                    continue;
                 }
             } else {
                 rewriteSZArray.push (tok);
             }
-        });
+        }
 
         return rewriteFoundFlag
             ? rewriteSZArray
