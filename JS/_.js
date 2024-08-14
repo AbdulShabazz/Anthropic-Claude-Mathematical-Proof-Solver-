@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark <14ms (test case 246) */
+    /** Benchmark 9ms (test case 246) */
 
     const NUM_WORKERS = 2;
     const workerScript =
@@ -88,42 +88,38 @@ Object.prototype._scope_satisfied = function(etok,lhs,li,rhs,ri){
     return sat;
 } // end Object.prototype._scope_satisfied
 
-Object.prototype._tryReplace = function (from, to) {
-    let ret = false;
-    if (from.length > this.length)
-        return false;
-    let i = 0;
-    let j = 0;
-    let self = [...this];
-    let tokenIDX = [];
-    let rewriteFoundFlag;
-    for (let tok of self) {
-        if (self._scope_satisfied(tok,self,j,from,i) 
-                && from [i] === tok){
-            tokenIDX.push (j);
-            ++i;
+
+
+    Object.prototype._tryReplace = function(from, to) {
+        if (from.length > this.length) return false;
+
+        let i = 0;
+        const I = from.length;
+        const J = this.length;
+        const rewriteSZArray = [];
+        let rewriteFoundFlag = false;
+        const boundScopeSatisfied = (tok,j,i) =>
+            from[i] == this[j]
+                && this._scope_satisfied(tok, this, j, from, i);
+
+        for (let j = 0; j < J; j++) {
+            const tok = this [j];
+            if (boundScopeSatisfied (tok, j, i)) {
+                if (++i === I) {
+                    i = 0;
+                    rewriteSZArray.push (...to);
+                    rewriteFoundFlag = true;
+                    continue;
+                }
+            } else {
+                rewriteSZArray.push (tok);
+            }
         }
-        !ret && (ret = (from.length == i));
-        if (ret){
-            tokenIDX.forEach ((k,idx,me) => {
-                self [k] = '';
-            });
-            self [j] = to.join (' ');
-            i = 0;
-            ret = false;
-            tokenIDX = [];
-            !rewriteFoundFlag && (rewriteFoundFlag = true);
-        }
-        ++j;
-    }
-    if (!rewriteFoundFlag)
-        return false;
-    const rewriteString = self
-        .join(' ')
-            .match(/\\S+/g) 
-                || [];
-    return rewriteString;
-} // end Object.prototype._tryReplace
+
+        return rewriteFoundFlag
+            ? rewriteSZArray
+            : false;
+    } // end Object.prototype._tryReplace
 `;
 
     let results = [];
