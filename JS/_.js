@@ -118,15 +118,6 @@ try {
         return null;
     } // end applyRule
 
-    Object.prototype._flatmap = function () {
-        this.map ((f,j,me) => {
-            return f instanceof Function 
-                ? f ()
-                : f ;
-        });
-        this; // for debug //
-    }
-
     Object.prototype._scope_satisfied = function(etok,lhs,li,rhs,ri){
         var i = 1;
         var end_scope = { "(":")", "{":"}" };
