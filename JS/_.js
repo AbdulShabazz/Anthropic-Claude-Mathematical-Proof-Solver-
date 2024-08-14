@@ -155,7 +155,7 @@ try {
             }
         } // test(etok) //
         return sat;
-    }
+    } // end Object.prototype._scope_satisfied
 
     Object.prototype._tryReplace = function(from, to) {
         if (from.length > this.length) return false;
