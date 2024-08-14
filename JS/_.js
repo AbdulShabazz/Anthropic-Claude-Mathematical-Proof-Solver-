@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 1ms */
+    /** Benchmark <7ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -59,7 +59,7 @@ try {
             !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
             return ret;
         })();
-        
+
         return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
         steps
             .map ((step, i) => {
@@ -68,14 +68,14 @@ try {
                 const isLHS = side === 'lhs';
                 const currentSide = isLHS ? result : lhs;
                 const otherSide = isLHS ? rhs : result;
-                
+
                 // update global expression
                 if (isLHS) {
                     lhs = result;
                 } else {
                     rhs = result;
                 }
-        
+
                 // return rewrite string
                 return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
             })
@@ -117,31 +117,69 @@ try {
         }
         return null;
     } // end applyRule
-    
+
+    Object.prototype._flatmap = function () {
+        this.map ((f,j,me) => {
+            return f instanceof Function 
+                ? f ()
+                : f ;
+        });
+        this; // for debug //
+    }
+
+    Object.prototype._scope_satisfied = function(etok,lhs,li,rhs,ri){
+        var i = 1;
+        var end_scope = { "(":")", "{":"}" };
+        var sat = true;
+        if (lhs[li] != rhs[ri]) {
+            sat = false;
+        } else if (etok in end_scope) {
+            if (((li+i) in lhs) && ((ri+i) in rhs)) {
+                var ltok = lhs [li+i];
+                var rtok = rhs [ri+i];
+                var I = rhs.length; // Math.min(lhs.length,rhs.length) //
+                etok = end_scope [etok];
+                while (i++<I){
+                    if (ltok!=rtok){
+                        sat = false;
+                        break;
+                    }
+                    if(rtok == etok){
+                        break;
+                    }
+                    ltok = lhs[li+i];
+                    rtok = rhs[ri+i];
+                }
+            } else {
+                sat = false;
+            }
+        } // test(etok) //
+        return sat;
+    }
+
     Object.prototype._tryReplace = function(from, to) {
         if (from.length > this.length) return false;
-      
-        let self = [...this];
-        const I = from.length;
-        let rewriteFoundFlag = false;
+
         let i = 0;
-      
-        for (let j = 0; j < self.length; j++) {
-            if (from [i] == self [j]) {
-                self [j] = '';
+        const I = from.length;
+        let rewriteSZArray = [];
+        let rewriteFoundFlag = false;
+        this.forEach ((tok, j, me) => {
+            if (this._scope_satisfied(tok,me,j,from,i) 
+                    && from [i] == tok) {
                 if (++i == I) {
-                    self.splice (j, 0, ...to);
                     i = 0;
+                    rewriteSZArray.push (...to);
                     rewriteFoundFlag = true;
                 }
+            } else {
+                rewriteSZArray.push (tok);
             }
-        }
+        });
 
-        const rewriteSZArray = rewriteFoundFlag 
-            ? self.filter (Boolean) 
-            : false ;
-
-        return rewriteSZArray;
+        return rewriteFoundFlag
+            ? rewriteSZArray
+            : false;
     }
 
     function updateLineNumbers () {
