@@ -11,11 +11,22 @@ TEST CASE [PASS]
 TEST CASE [PASS]
 
 // Axioms and Lemmas
+{ 1 } + { 1 } = { 2 }
+{ 2 } + { 2 } = { 4 }
+
+// Theorem to prove
+{ 1 } + { 2 } + { 1 } = { 4 }
+
+
+TEST CASE [PASS]
+
+// Axioms and Lemmas
 1 + 1 = 2
 2 + 1 = 3
 
 // Prove
 1 + 2 + 1 = 3 + 1
+
 
 TEST CASE [PASS]
 
@@ -25,6 +36,7 @@ TEST CASE [PASS]
 
 // Prove
 1 + 1 + 2 = 3 + 1
+
 
 TEST CASE (Via Reduce) [PASS]
 
@@ -76,6 +88,7 @@ TEST CASE [PASS]
 
 // Prove
 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 = 18
+
 
 TEST CASE [PASS]
 
@@ -335,6 +348,7 @@ TEST CASE [PASS]
 { { a } raised { 2 } } plus { 2ab } plus { b raised { 2 } } <== { { a } plus { b } } raised { 2 }
 { { a } plus { b } } raised { 2 } minus { 2ab } <== { c } raised { 2 }
 { { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { b raised { 2 } } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { b raised { 2 } } ==> { { a } raised { 2 } } plus { 2ab } plus { b raised { 2 } } minus { 2ab }
 { { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
 
 // Theorem to prove
@@ -346,6 +360,7 @@ TEST CASE [PASS]
 { { a } raised { 2 } } plus { 2ab } plus { b raised { 2 } } <== { { a } plus { b } } raised { 2 }
 { { a } plus { b } } raised { 2 } minus { 2ab } = { c } raised { 2 } <== { { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
 { { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { b raised { 2 } } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { b raised { 2 } } ==> { { a } raised { 2 } } plus { 2ab } plus { b raised { 2 } } minus { 2ab }
 { { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
 
 // Theorem to prove
