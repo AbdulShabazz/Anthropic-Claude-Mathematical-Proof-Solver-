@@ -1,6 +1,8 @@
 
 try {
 
+    /** Benchmark <14ms (test case 246) */
+
     const NUM_WORKERS = 2;
     const workerScript =
 `
@@ -54,7 +56,37 @@ self.onmessage = function (e) {
             return null;
         } // end applyRule
     } // end applyRules
-}
+}    
+    
+Object.prototype._scope_satisfied = function(etok,lhs,li,rhs,ri){
+    var i = 1;
+    var end_scope = { "(":")", "{":"}" };
+    var sat = true;
+    if (lhs[li] != rhs[ri]) {
+        sat = false;
+    } else if (etok in end_scope) {
+        if (((li+i) in lhs) && ((ri+i) in rhs)) {
+            var ltok = lhs [li+i];
+            var rtok = rhs [ri+i];
+            var I = rhs.length; // Math.min(lhs.length,rhs.length) //
+            etok = end_scope [etok];
+            while (i++<I){
+                if (ltok!=rtok){
+                    sat = false;
+                    break;
+                }
+                if(rtok == etok){
+                    break;
+                }
+                ltok = lhs[li+i];
+                rtok = rhs[ri+i];
+            }
+        } else {
+            sat = false;
+        }
+    } // test(etok) //
+    return sat;
+} // end Object.prototype._scope_satisfied
 
 Object.prototype._tryReplace = function (from, to) {
     let ret = false;
@@ -66,7 +98,8 @@ Object.prototype._tryReplace = function (from, to) {
     let tokenIDX = [];
     let rewriteFoundFlag;
     for (let tok of self) {
-        if (tok == from [i]){
+        if (self._scope_satisfied(tok,self,j,from,i) 
+                && from [i] === tok){
             tokenIDX.push (j);
             ++i;
         }
