@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark <5ms (test case 246) */
+    /** Benchmark 4ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -153,13 +153,14 @@ try {
 
         let i = 0;
         const I = from.length;
+        const J = this.length;
         const rewriteSZArray = [];
         let rewriteFoundFlag = false;
         const boundScopeSatisfied = (tok,j,i) =>
             from[i] == this[j]
                 && this._scope_satisfied(tok, this, j, from, i);
 
-        for (let j = 0; j < this.length; j++) {
+        for (let j = 0; j < J; j++) {
             const tok = this [j];
             if (boundScopeSatisfied (tok, j, i)) {
                 if (++i === I) {
