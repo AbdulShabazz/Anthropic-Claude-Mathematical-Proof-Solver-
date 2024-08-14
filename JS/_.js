@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 4ms (test case 246) */
+    /** Benchmark <7ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -12,7 +12,7 @@ try {
         const { axioms, proofStatement } = parseInput (_input.value);
         const startTime = performance.now ();
         _output.value = generateProof (axioms, proofStatement);
-        output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+        _output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
     } // end solveProblem
 
     function parseInput (input) {
