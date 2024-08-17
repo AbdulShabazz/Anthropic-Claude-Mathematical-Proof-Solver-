@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 2ms (test case 246) */
+    /** Benchmark 1ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -77,35 +77,35 @@ try {
             const ci_rhsZ = rhs._genConfidenceInterval (from);
             const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ)); // reduce: lhs => rhs
             if (ci_lhsZ && subnetReduceFlag) {
-                AddToLHSReduce (axiom, /* ci_lhsZ, */ i);
+                AddToLHSReduce (axiom, i);
             } else if (ci_lhsZ) {                
-                AddToLHSExpand (axiom, /* ci_lhsZ, */ i);
+                AddToLHSExpand (axiom, i);
             } 
             if (ci_rhsZ && subnetReduceFlag) {
-                AddToRHSReduce (axiom, /* ci_rhsZ, */ i);
+                AddToRHSReduce (axiom, i);
             } else if (ci_rhsZ) {         
-                AddToRHSExpand (axiom, /* ci_rhsZ, */ i);
+                AddToRHSExpand (axiom, i);
             }
         } // end buildSubnetCallGraphF (axiom, from, to)
 
-        function AddToLHSReduce (axiom, /* ci, */ i) {
+        function AddToLHSReduce (axiom, i) {
             (axiom._lhsReduce == undefined) && (axiom._lhsReduce = []);
-            axiom._lhsReduce.push (/* { ci, i } */ i);
+            axiom._lhsReduce.push (i);
         } // end AddToLHSReduce
 
-        function AddToLHSExpand (axiom, /* ci, */ i) {
+        function AddToLHSExpand (axiom, i) {
             (axiom._lhsExpand == undefined) && (axiom._lhsExpand = []);
-            axiom._lhsExpand.push (/* { ci, i } */ i);
+            axiom._lhsExpand.push (i);
         } // end AddToLHSExpand
 
-        function AddToRHSReduce (axiom, /* ci, */ i) {
+        function AddToRHSReduce (axiom, i) {
             (axiom._rhsReduce == undefined) && (axiom._rhsReduce = []);
-            axiom._rhsReduce.push (/* { ci, i } */ i);
+            axiom._rhsReduce.push (i);
         } // end AddToRHSReduce
 
-        function AddToRHSExpand (axiom, /* ci, */ i) {
+        function AddToRHSExpand (axiom, i) {
             (axiom._rhsExpand == undefined) && (axiom._rhsExpand = []);
-            axiom._rhsExpand.push (/* { ci, i } */ i);
+            axiom._rhsExpand.push (i);
         } // end AddToRHSExpand
 
     } // end parseInput
@@ -174,14 +174,10 @@ try {
                     if (tmpAxioms [guidZ]?._lhsReduce) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._lhsReduce
-                                //.sort((a,b) => b.ci > a.ci)
-                                    //.map (o => o.i)
                         );
                     } else if (tmpAxioms [guidZ]?._rhsReduce) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._rhsReduce
-                                //.sort((a,b) => b.ci > a.ci)
-                                    //.map (o => o.i)
                         );
                     }
                     break;
@@ -189,14 +185,10 @@ try {
                     if (tmpAxioms [guidZ]?._lhsExpand) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._lhsExpand
-                                //.sort((a,b) => b.ci > a.ci)
-                                    //.map (o => o.i)
                         );
                     } else if (tmpAxioms [guidZ]?._rhsExpand) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._rhsExpand
-                                //.sort((a,b) => b.ci > a.ci)
-                                    //.map (o => o.i)
                         );
                     }
                     break;
