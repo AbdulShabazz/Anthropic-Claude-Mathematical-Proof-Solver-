@@ -261,42 +261,32 @@ try {
         for (let j = 0; j < J; j++) {
             const tok = this [j];
             if (boundScopeSatisfied (tok, j, i)
-                        && (++i === I)) {
-                    i = 0;
+                    && (++i === I)) {
+                i = 0;
             } 
         }
 
         return ci;
     } // end Object.prototype._genConfidenceInterval
 
-    Object.prototype._scope_satisfied = function(etok,lhs,li,rhs,ri){
-        var i = 1;
-        var end_scope = { "(":")", "{":"}" };
-        var sat = true;
-        if (lhs[li] != rhs[ri]) {
-            sat = false;
-        } else if (etok in end_scope) {
-            if (((li+i) in lhs) && ((ri+i) in rhs)) {
-                var ltok = lhs [li+i];
-                var rtok = rhs [ri+i];
-                var I = rhs.length; // Math.min(lhs.length,rhs.length) //
-                etok = end_scope [etok];
-                while (i++<I){
-                    if (ltok!=rtok){
-                        sat = false;
-                        break;
-                    }
-                    if(rtok == etok){
-                        break;
-                    }
-                    ltok = lhs[li+i];
-                    rtok = rhs[ri+i];
-                }
-            } else {
-                sat = false;
-            }
-        } // test(etok) //
-        return sat;
+    Object.prototype._scope_satisfied = function(etok, lhs, li, rhs, ri) {
+        if (lhs[li] !== rhs[ri]) return false;
+    
+        const endScope = { "(": ")", "{": "}" };
+        if (!(etok in endScope)) return true;
+    
+        const endToken = endScope[etok];
+        const I = rhs.length;
+    
+        for (let i = 1; ri + i < I; i++) {
+            const ltok = lhs[li + i];
+            const rtok = rhs[ri + i];
+    
+            if (ltok !== rtok) return false;
+            if (rtok === endToken) return true;
+        }
+    
+        return false;
     } // end Object.prototype._scope_satisfied
 
     function updateLineNumbers () {
