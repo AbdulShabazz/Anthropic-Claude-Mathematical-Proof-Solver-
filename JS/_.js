@@ -203,9 +203,11 @@ try {
             } // end switch (action)
             return tmpA;
         }) ();
-        for (let i = axiomIDS[0]; axiomIDS.length > 0; axiomIDS.shift()) {
-            if (i == guidZ) continue;
-            const axiom = tmpAxioms [i];
+        const I = axiomIDS.length;
+        for (let i = 0; i < I; i++) {
+            const uuid = axiomIDS [i];
+            if (uuid == guidZ) continue;
+            const axiom = tmpAxioms [uuid];
             const [left, right] = axiom.subnets;
             const from = action === 'reduce' ? left : right;
             const to = action === 'reduce' ? right : left;
@@ -214,10 +216,10 @@ try {
                 return {
                     result: rewriteFound,
                     axiomID: axiom.axiomID,
-                    axiomRewriteID: i,
+                    axiomRewriteID: uuid,
                 };
             }
-        }
+        } // end for (let i = 0; i < I; i++)
         return null;
     } // end applyRule
 
