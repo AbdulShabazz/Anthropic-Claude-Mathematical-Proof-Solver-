@@ -6,7 +6,7 @@ try {
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
     let _lineNumbers = document.getElementById ('line-numbers');
-    
+
     function solveProblem () {
         rewriteHistoryProofFoundFlag = false;
         const { axioms, proofStatement } = parseInput (_input.value);
@@ -57,7 +57,7 @@ try {
         function buildAllSubnetCallGraphsF (unsortedAxiomsArray) {
             const I = unsortedAxiomsArray.length;
             const J = unsortedAxiomsArray.length - 1; // disallow root
-            
+
             for (let i = 0; i < I; i++) {
                 let axiom_00 = unsortedAxiomsArray [i];
                 for (let j = 0; j < J; j++) {
@@ -67,7 +67,7 @@ try {
                     buildSubnetCallGraphF (axiom_00, j, axiom_01_lhs, 'lhs');
                     buildSubnetCallGraphF (axiom_00, j, axiom_01_rhs, 'rhs');
                 } // end for (let j = 0; j < J; j++)
-            } // end for (let i = 0; i < I; i++) 
+            } // end for (let i = 0; i < I; i++)
 
         } // end buildSubnetCallGraphs (...)
 
@@ -78,12 +78,12 @@ try {
             const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ)); // reduce: lhs => rhs
             if (ci_lhsZ && subnetReduceFlag) {
                 AddToLHSReduce (axiom, i);
-            } else if (ci_lhsZ) {                
+            } else if (ci_lhsZ) {
                 AddToLHSExpand (axiom, i);
-            } 
+            }
             if (ci_rhsZ && subnetReduceFlag) {
                 AddToRHSReduce (axiom, i);
-            } else if (ci_rhsZ) {         
+            } else if (ci_rhsZ) {
                 AddToRHSExpand (axiom, i);
             }
         } // end buildSubnetCallGraphF (axiom, from, to)
@@ -119,9 +119,10 @@ try {
                 return true;
             let ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]],'reduce');
             ret == (lhs.join (' ') == rhs.join (' '));
-            !ret 
-                && (proofsteps.push ([...steps])) 
-                    && (steps = []) && (ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]], 'expand'));
+            !ret
+                && (proofsteps.push ([...steps]))
+                    && (steps = [])
+                        && (ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]], 'expand'));
             proofsteps.push ([...steps]);
             return ret;
         })();
@@ -130,7 +131,7 @@ try {
             .sort((a,b) => b.length > a.length)
                 .shift());
 
-        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement.subnets [0].join (' ')} = ${proofStatement.subnets [1].join (' ')}, (root)\n` 
+        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement.subnets [0].join (' ')} = ${proofStatement.subnets [1].join (' ')}, (root)\n`
             + steps
                 .map ((step, i) => {
                     // update proofstep
@@ -149,7 +150,7 @@ try {
                     // return rewrite string
                     return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
                 })
-                .join ('\n') 
+                .join ('\n')
                     + (proofFound ? '\n\nQ.E.D.' : '');
 
         function applyRules (tmpAxioms, axiomID, sides, action) {
@@ -173,12 +174,12 @@ try {
 
     function applyRule (axiomID, expression, tmpAxioms, action) {
         const guidZ = (Number(axiomID) === axiomID )
-            ? axiomID 
+            ? axiomID
             : Number(axiomID.match(/(\d+)/)[0]) - 1 ;
         const axiomIDS = (() => {
             let tmpA = [];
             switch (action) {
-                case 'reduce': 
+                case 'reduce':
                     if (tmpAxioms [guidZ]?._lhsReduce) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._lhsReduce
@@ -271,7 +272,7 @@ try {
             if (boundScopeSatisfied (tok, j, i)
                     && (++i === I)) {
                 i = 0;
-            } 
+            }
         }
 
         return ci;
@@ -279,21 +280,21 @@ try {
 
     Object.prototype._scope_satisfied = function(etok, lhs, li, rhs, ri) {
         if (lhs[li] !== rhs[ri]) return false;
-    
+
         const endScope = { "(": ")", "{": "}" };
         if (!(etok in endScope)) return true;
-    
+
         const endToken = endScope[etok];
         const I = rhs.length;
-    
+
         for (let i = 1; ri + i < I; i++) {
             const ltok = lhs[li + i];
             const rtok = rhs[ri + i];
-    
+
             if (ltok !== rtok) return false;
             if (rtok === endToken) return true;
         }
-    
+
         return false;
     } // end Object.prototype._scope_satisfied
 
