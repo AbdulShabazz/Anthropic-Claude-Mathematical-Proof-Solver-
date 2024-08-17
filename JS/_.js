@@ -19,7 +19,7 @@ try {
         let lines = input
             .split ('\n')
                 .filter (line => line.trim () && !line.startsWith ('//'));
-        let axioms = new Set ();
+        let axiomsSet = new Set ();
 
         lines
             .slice ()
@@ -29,12 +29,12 @@ try {
                             .map (s => s.trim ());
                     parts.forEach ((part, i) => {
                         parts.slice (i + 1).forEach ((otherPart, j, me) => {
-                            axioms.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
+                            axiomsSet.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
                         });
                     });
                 });
 
-        const sortedAxioms = Array.from (axioms)
+        const sortedAxioms = Array.from (axiomsSet)
             .map (axiom => {
                 axiom.subnets = axiom.subnets
                     .split (' = ')
@@ -59,9 +59,9 @@ try {
             const J = unsortedAxiomsArray.length - 1; // disallow root
             
             for (let i = 0; i < I; i++) {
+                let axiom_00 = unsortedAxiomsArray [i];
                 for (let j = 0; j < J; j++) {
                     if (i == j) continue ;
-                    let axiom_00 = unsortedAxiomsArray [i];
                     let axiom_01 = unsortedAxiomsArray [j];
                     let [ axiom_01_lhs, axiom_01_rhs ] = axiom_01.subnets;
                     buildSubnetCallGraphF (axiom_00, j, axiom_01_lhs, 'lhs');
@@ -77,35 +77,35 @@ try {
             const ci_rhsZ = rhs._genConfidenceInterval (from);
             const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ)); // reduce: lhs => rhs
             if (ci_lhsZ && subnetReduceFlag) {
-                AddToLHSReduce (axiom, ci_lhsZ, i);
+                AddToLHSReduce (axiom, /* ci_lhsZ, */ i);
             } else if (ci_lhsZ) {                
-                AddToLHSExpand (axiom, ci_lhsZ, i);
+                AddToLHSExpand (axiom, /* ci_lhsZ, */ i);
             } 
             if (ci_rhsZ && subnetReduceFlag) {
-                AddToRHSReduce (axiom, ci_rhsZ, i);
+                AddToRHSReduce (axiom, /* ci_rhsZ, */ i);
             } else if (ci_rhsZ) {         
-                AddToRHSExpand (axiom, ci_rhsZ, i);
+                AddToRHSExpand (axiom, /* ci_rhsZ, */ i);
             }
         } // end buildSubnetCallGraphF (axiom, from, to)
 
-        function AddToLHSReduce (axiom, ci, i) {
+        function AddToLHSReduce (axiom, /* ci, */ i) {
             (axiom._lhsReduce == undefined) && (axiom._lhsReduce = []);
-            axiom._lhsReduce.push ({ ci, i });
+            axiom._lhsReduce.push (/* { ci, i } */ i);
         } // end AddToLHSReduce
 
-        function AddToLHSExpand (axiom, ci, i) {
+        function AddToLHSExpand (axiom, /* ci, */ i) {
             (axiom._lhsExpand == undefined) && (axiom._lhsExpand = []);
-            axiom._lhsExpand.push ({ ci, i });
+            axiom._lhsExpand.push (/* { ci, i } */ i);
         } // end AddToLHSExpand
 
-        function AddToRHSReduce (axiom, ci, i) {
+        function AddToRHSReduce (axiom, /* ci, */ i) {
             (axiom._rhsReduce == undefined) && (axiom._rhsReduce = []);
-            axiom._rhsReduce.push ({ ci, i });
+            axiom._rhsReduce.push (/* { ci, i } */ i);
         } // end AddToRHSReduce
 
-        function AddToRHSExpand (axiom, ci, i) {
+        function AddToRHSExpand (axiom, /* ci, */ i) {
             (axiom._rhsExpand == undefined) && (axiom._rhsExpand = []);
-            axiom._rhsExpand.push ({ ci, i });
+            axiom._rhsExpand.push (/* { ci, i } */ i);
         } // end AddToRHSExpand
 
     } // end parseInput
@@ -116,9 +116,9 @@ try {
         const proofFound = (() => {
             if (lhs.join (' ') == rhs.join (' '))
                 return true;
-            let ret = applyRules (proofStatement.axiomID, [[...lhs], [...rhs]],'reduce');
+            let ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]],'reduce');
             ret == (lhs.join (' ') == rhs.join (' '));
-            !ret && (steps = []) && (ret = applyRules (proofStatement.axiomID, [[...lhs], [...rhs]], 'expand'));
+            !ret && (steps = []) && (ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]], 'expand'));
             return ret;
         })();
 
@@ -144,12 +144,12 @@ try {
                 .join ('\n') +
                     (proofFound ? '\n\nQ.E.D.' : '');
 
-        function applyRules (axiomID, sides, action) {
+        function applyRules (tmpAxioms, axiomID, sides, action) {
             sides = sides.map ((current,idx,me) => {
                 let changed;
                 const side = idx == 0 ? 'lhs' : 'rhs' ;
                 do {
-                    changed = applyRule (axiomID, side, current, axioms, action);
+                    changed = applyRule (axiomID, current, tmpAxioms, action);
                     if (changed) {
                         steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [] });
                         current = changed.result;
@@ -163,7 +163,7 @@ try {
 
     } // end generateProof
 
-    function applyRule (axiomID, side, expression, axioms, action) {
+    function applyRule (axiomID, expression, tmpAxioms, action) {
         const guidZ = (Number(axiomID) === axiomID )
             ? axiomID 
             : Number(axiomID.match(/(\d+)/)[0]) - 1 ;
@@ -171,32 +171,32 @@ try {
             let tmpA = [];
             switch (action) {
                 case 'reduce': 
-                    if (axioms [guidZ]?._lhsReduce && side === 'lhs') {
+                    if (tmpAxioms [guidZ]?._lhsReduce) {
                         tmpA.push (
-                            ...axioms [guidZ]?._lhsReduce
-                                .sort((a,b) => b.ci > a.ci)
-                                    .map (o => o.i)
+                            ...tmpAxioms [guidZ]?._lhsReduce
+                                //.sort((a,b) => b.ci > a.ci)
+                                    //.map (o => o.i)
                         );
-                    } else if (axioms [guidZ]?._rhsReduce && side === 'rhs') {
+                    } else if (tmpAxioms [guidZ]?._rhsReduce) {
                         tmpA.push (
-                            ...axioms [guidZ]?._rhsReduce
-                                .sort((a,b) => b.ci > a.ci)
-                                    .map (o => o.i)
+                            ...tmpAxioms [guidZ]?._rhsReduce
+                                //.sort((a,b) => b.ci > a.ci)
+                                    //.map (o => o.i)
                         );
                     }
                     break;
                 case 'expand':
-                    if (axioms [guidZ]?._lhsExpand && side === 'lhs') {
+                    if (tmpAxioms [guidZ]?._lhsExpand) {
                         tmpA.push (
-                            ...axioms [guidZ]?._lhsExpand
-                                .sort((a,b) => b.ci > a.ci)
-                                    .map (o => o.i)
+                            ...tmpAxioms [guidZ]?._lhsExpand
+                                //.sort((a,b) => b.ci > a.ci)
+                                    //.map (o => o.i)
                         );
-                    } else if (axioms [guidZ]?._rhsExpand && side === 'rhs') {
+                    } else if (tmpAxioms [guidZ]?._rhsExpand) {
                         tmpA.push (
-                            ...axioms [guidZ]?._rhsExpand
-                                .sort((a,b) => b.ci > a.ci)
-                                    .map (o => o.i)
+                            ...tmpAxioms [guidZ]?._rhsExpand
+                                //.sort((a,b) => b.ci > a.ci)
+                                    //.map (o => o.i)
                         );
                     }
                     break;
@@ -205,7 +205,7 @@ try {
         }) ();
         for (let i = axiomIDS[0]; axiomIDS.length > 0; axiomIDS.shift()) {
             if (i == guidZ) continue;
-            const axiom = axioms [i];
+            const axiom = tmpAxioms [i];
             const [left, right] = axiom.subnets;
             const from = action === 'reduce' ? left : right;
             const to = action === 'reduce' ? right : left;
