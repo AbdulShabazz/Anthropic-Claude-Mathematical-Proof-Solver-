@@ -1,23 +1,12 @@
 
 try {
 
-    /** Benchmark 4ms (test case 246) */
+    /** Benchmark 2ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
     let _lineNumbers = document.getElementById ('line-numbers');
-
-    class SubnetClass extends Array {
-        constructor(){
-            super();
-            let self = this;
-            self._lhsReduce = [];
-            self._lhsExpand = [];
-            self._rhsReduce = [];
-            self._rhsExpand = [];
-        }
-    } // end SubnetClass
-
+    
     function solveProblem () {
         rewriteHistoryProofFoundFlag = false;
         const { axioms, proofStatement } = parseInput (_input.value);
@@ -33,7 +22,7 @@ try {
         let axioms = new Set ();
 
         lines
-            .slice (0/* , -1 */)
+            .slice ()
                 .forEach ((line,k,thisArray) => {
                     const parts = line
                         .split (/[~<]?=+[>]?/g)
@@ -67,20 +56,17 @@ try {
 
         function buildAllSubnetCallGraphsF (unsortedAxiomsArray) {
             const I = unsortedAxiomsArray.length;
+            const J = unsortedAxiomsArray.length - 1; // disallow root
             
             for (let i = 0; i < I; i++) {
-                for (let j = i; j < I; j++) {
+                for (let j = 0; j < J; j++) {
                     if (i == j) continue ;
-                    // axioms
-                    let lhsAxiom = unsortedAxiomsArray [i];
-                    let rhsAxiom = unsortedAxiomsArray [j];
-                    let [ lhsAxiomLHS, lhsAxiomRHS ] = lhsAxiom.subnets;
-                    let [ rhsAxiomLHS, rhsAxiomRHS ] = rhsAxiom.subnets;
-                    buildSubnetCallGraphF (lhsAxiom, j, rhsAxiomLHS, 'lhs');
-                    buildSubnetCallGraphF (lhsAxiom, j, rhsAxiomRHS, 'rhs');
-                    buildSubnetCallGraphF (rhsAxiom, i, lhsAxiomLHS, 'lhs');
-                    buildSubnetCallGraphF (rhsAxiom, i, lhsAxiomRHS, 'rhs');
-                }
+                    let axiom_00 = unsortedAxiomsArray [i];
+                    let axiom_01 = unsortedAxiomsArray [j];
+                    let [ axiom_01_lhs, axiom_01_rhs ] = axiom_01.subnets;
+                    buildSubnetCallGraphF (axiom_00, j, axiom_01_lhs, 'lhs');
+                    buildSubnetCallGraphF (axiom_00, j, axiom_01_rhs, 'rhs');
+                } // end for (let j = 0; j < J; j++)
             } // end for (let i = 0; i < I; i++) 
 
         } // end buildSubnetCallGraphs (...)
@@ -89,38 +75,38 @@ try {
             let [ lhs, rhs ] = axiom.subnets;
             const ci_lhsZ = lhs._genConfidenceInterval (from);
             const ci_rhsZ = rhs._genConfidenceInterval (from);
-            const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ));
+            const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ)); // reduce: lhs => rhs
             if (ci_lhsZ && subnetReduceFlag) {
-                AddToLHSReduceSubnet (axiom, i);
+                AddToLHSReduce (axiom, ci_lhsZ, i);
             } else if (ci_lhsZ) {                
-                AddToLHSExpandSubnet (axiom, i);
+                AddToLHSExpand (axiom, ci_lhsZ, i);
             } 
             if (ci_rhsZ && subnetReduceFlag) {
-                AddToRHSReduceSubnet (axiom, i);
+                AddToRHSReduce (axiom, ci_rhsZ, i);
             } else if (ci_rhsZ) {         
-                AddToRHSExpandSubnet (axiom, i);
+                AddToRHSExpand (axiom, ci_rhsZ, i);
             }
         } // end buildSubnetCallGraphF (axiom, from, to)
 
-        function AddToLHSReduceSubnet (axiom, i) {
-            !axiom._lhsReduce && (axiom._lhsReduce = []);
-            axiom._lhsReduce.push (i);
-        } // end AddToLHSReduceSubnet
+        function AddToLHSReduce (axiom, ci, i) {
+            (axiom._lhsReduce == undefined) && (axiom._lhsReduce = []);
+            axiom._lhsReduce.push ({ ci, i });
+        } // end AddToLHSReduce
 
-        function AddToLHSExpandSubnet (axiom, i) {
-            !axiom._lhsExpand && (axiom._lhsExpand = []);
-            axiom._lhsExpand.push (i);
-        } // end AddToLHSExpandSubnet
+        function AddToLHSExpand (axiom, ci, i) {
+            (axiom._lhsExpand == undefined) && (axiom._lhsExpand = []);
+            axiom._lhsExpand.push ({ ci, i });
+        } // end AddToLHSExpand
 
-        function AddToRHSReduceSubnet (axiom, i) {
-            !axiom._rhsReduce && (axiom._rhsReduce = []);
-            axiom._rhsReduce.push (i);
-        } // end AddToRHSReduceSubnet
+        function AddToRHSReduce (axiom, ci, i) {
+            (axiom._rhsReduce == undefined) && (axiom._rhsReduce = []);
+            axiom._rhsReduce.push ({ ci, i });
+        } // end AddToRHSReduce
 
-        function AddToRHSExpandSubnet (axiom, i) {
-            !axiom._rhsExpand && (axiom._rhsExpand = []);
-            axiom._rhsExpand.push (i);
-        } // end AddToRHSExpandSubnet
+        function AddToRHSExpand (axiom, ci, i) {
+            (axiom._rhsExpand == undefined) && (axiom._rhsExpand = []);
+            axiom._rhsExpand.push ({ ci, i });
+        } // end AddToRHSExpand
 
     } // end parseInput
 
@@ -178,7 +164,6 @@ try {
     } // end generateProof
 
     function applyRule (axiomID, side, expression, axioms, action) {
-        //const I = axioms.length;
         const guidZ = (Number(axiomID) === axiomID )
             ? axiomID 
             : Number(axiomID.match(/(\d+)/)[0]) - 1 ;
@@ -187,22 +172,38 @@ try {
             switch (action) {
                 case 'reduce': 
                     if (axioms [guidZ]?._lhsReduce && side === 'lhs') {
-                        tmpA.push (...axioms [guidZ]?._lhsReduce);
+                        tmpA.push (
+                            ...axioms [guidZ]?._lhsReduce
+                                .sort((a,b) => b.ci > a.ci)
+                                    .map (o => o.i)
+                        );
                     } else if (axioms [guidZ]?._rhsReduce && side === 'rhs') {
-                        tmpA.push (...axioms [guidZ]?._rhsReduce);
+                        tmpA.push (
+                            ...axioms [guidZ]?._rhsReduce
+                                .sort((a,b) => b.ci > a.ci)
+                                    .map (o => o.i)
+                        );
                     }
                     break;
                 case 'expand':
                     if (axioms [guidZ]?._lhsExpand && side === 'lhs') {
-                        tmpA.push (...axioms [guidZ]?._lhsExpand);
+                        tmpA.push (
+                            ...axioms [guidZ]?._lhsExpand
+                                .sort((a,b) => b.ci > a.ci)
+                                    .map (o => o.i)
+                        );
                     } else if (axioms [guidZ]?._rhsExpand && side === 'rhs') {
-                        tmpA.push (...axioms [guidZ]?._rhsExpand);
+                        tmpA.push (
+                            ...axioms [guidZ]?._rhsExpand
+                                .sort((a,b) => b.ci > a.ci)
+                                    .map (o => o.i)
+                        );
                     }
                     break;
             } // end switch (action)
             return tmpA;
         }) ();
-        for (let i = axiomIDS.shift (); axiomIDS.length > 0; i = axiomIDS.shift ()) {
+        for (let i = axiomIDS[0]; axiomIDS.length > 0; axiomIDS.shift()) {
             if (i == guidZ) continue;
             const axiom = axioms [i];
             const [left, right] = axiom.subnets;
@@ -257,10 +258,10 @@ try {
         let i = 0;
         const I = from.length;
         const J = this.length;
-        let confidenceIntervalZ = 0;;
+        let ci = 0;;
         const boundScopeSatisfied = (tok,j,i) =>
             from[i] == this[j]
-                && ++confidenceIntervalZ
+                && ++ci
                     && this._scope_satisfied(tok, this, j, from, i);
 
         for (let j = 0; j < J; j++) {
@@ -271,7 +272,7 @@ try {
             } 
         }
 
-        return confidenceIntervalZ;
+        return ci;
     } // end Object.prototype._genConfidenceInterval
 
     Object.prototype._scope_satisfied = function(etok,lhs,li,rhs,ri){
