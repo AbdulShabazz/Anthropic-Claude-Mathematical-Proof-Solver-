@@ -112,18 +112,26 @@ try {
 
     function generateProof (axioms, proofStatement) {
         let steps = [];
+        let proofsteps = []
         let [lhs, rhs] = proofStatement.subnets;
         const proofFound = (() => {
             if (lhs.join (' ') == rhs.join (' '))
                 return true;
             let ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]],'reduce');
             ret == (lhs.join (' ') == rhs.join (' '));
-            !ret && (steps = []) && (ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]], 'expand'));
+            !ret 
+                && (proofsteps.push ([...steps])) 
+                    && (steps = []) && (ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]], 'expand'));
+            proofsteps.push ([...steps]);
             return ret;
         })();
 
-        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement.subnets [0].join (' ')} = ${proofStatement.subnets [1].join (' ')}, (root)\n` +
-            steps
+        !proofFound && (result = proofsteps
+            .sort((a,b) => b.length > a.length)
+                .shift());
+
+        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement.subnets [0].join (' ')} = ${proofStatement.subnets [1].join (' ')}, (root)\n` 
+            + steps
                 .map ((step, i) => {
                     // update proofstep
                     const { side, result, action, axiomID } = step;
@@ -141,8 +149,8 @@ try {
                     // return rewrite string
                     return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
                 })
-                .join ('\n') +
-                    (proofFound ? '\n\nQ.E.D.' : '');
+                .join ('\n') 
+                    + (proofFound ? '\n\nQ.E.D.' : '');
 
         function applyRules (tmpAxioms, axiomID, sides, action) {
             sides = sides.map ((current,idx,me) => {
