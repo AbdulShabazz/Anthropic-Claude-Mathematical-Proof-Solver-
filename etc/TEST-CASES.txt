@@ -345,10 +345,10 @@ TEST CASE [PASS]
 TEST CASE [PASS]
 
 // Axioms and Lemmas
-{ { a } raised { 2 } } plus { 2ab } plus { b raised { 2 } } <== { { a } plus { b } } raised { 2 }
+{ { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } <== { { a } plus { b } } raised { 2 }
 { { a } plus { b } } raised { 2 } minus { 2ab } <== { c } raised { 2 }
-{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { b raised { 2 } } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
-{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { b raised { 2 } } ==> { { a } raised { 2 } } plus { 2ab } plus { b raised { 2 } } minus { 2ab }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } ==> { { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } minus { 2ab }
 { { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
 
 // Theorem to prove
@@ -357,10 +357,10 @@ TEST CASE [PASS]
 TEST CASE [PASS]
 
 // Axioms and Lemmas
-{ { a } raised { 2 } } plus { 2ab } plus { b raised { 2 } } <== { { a } plus { b } } raised { 2 }
+{ { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } <== { { a } plus { b } } raised { 2 }
 { { a } plus { b } } raised { 2 } minus { 2ab } = { c } raised { 2 } <== { { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
-{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { b raised { 2 } } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
-{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { b raised { 2 } } ==> { { a } raised { 2 } } plus { 2ab } plus { b raised { 2 } } minus { 2ab }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } ==> { { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } minus { 2ab }
 { { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
 
 // Theorem to prove
