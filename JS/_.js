@@ -118,23 +118,24 @@ try {
         return null;
     } // end applyRule
 
-    Object.prototype._scope_satisfied = function(etok, lhs, li, rhs, ri) {
-        if (lhs[li] !== rhs[ri]) return false;
-    
+    Object.prototype._scope_satisfied = function(etok, lhs, l, rhs, r) {
+        if (lhs[l] !== rhs[r]) return false;
+
         const endScope = { "(": ")", "{": "}" };
-        if (!(etok in endScope)) return true;
-    
+        if (!(etok in endScope)) return { j : l };
+
         const endToken = endScope[etok];
         const I = rhs.length;
-    
-        for (let i = 1; ri + i < I; i++) {
-            const ltok = lhs[li + i];
-            const rtok = rhs[ri + i];
-    
+        const J = lhs.length;
+
+        for (let i = 1; (r + i < I) && (l + i < J); i++) {
+            const ltok = lhs[l + i];
+            const rtok = rhs[r + i];
+
             if (ltok !== rtok) return false;
-            if (rtok === endToken) return true;
+            if (rtok === endToken) return { j : l + i };
         }
-    
+
         return false;
     } // end Object.prototype._scope_satisfied
 
@@ -146,13 +147,18 @@ try {
         const J = this.length;
         const rewriteSZArray = [];
         let rewriteFoundFlag = false;
-        const boundScopeSatisfied = (tok,j,i) =>
-            from[i] == this[j]
-                && this._scope_satisfied(tok, this, j, from, i);
+        const boundScopeSatisfied = (tok,j,i) =>{
+            if (from[i] == this[j])
+                return this._scope_satisfied(tok, this, j, from, i);
+            return false;
+        };
 
+        let resp;
         for (let j = 0; j < J; j++) {
             const tok = this [j];
-            if (boundScopeSatisfied (tok, j, i)) {
+            if (resp = boundScopeSatisfied (tok, j, i)) {
+                i += resp.j - j;
+                j = resp.j;
                 if (++i === I) {
                     i = 0;
                     rewriteSZArray.push (...to);
