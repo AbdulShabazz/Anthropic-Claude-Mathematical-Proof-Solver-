@@ -232,13 +232,15 @@ try {
         const J = this.length;
         const rewriteSZArray = [];
         let rewriteFoundFlag = false;
-        const boundScopeSatisfied = (tok,j,i) =>
-            from[i] == this[j]
-                && this._scope_satisfied(tok, this, j, from, i);
+        const boundScopeSatisfied = (tok,j,i) => 
+            this._scope_satisfied(tok, this, j, from, i);
 
+        let resp;
         for (let j = 0; j < J; j++) {
             const tok = this [j];
-            if (boundScopeSatisfied (tok, j, i)) {
+            if (resp = boundScopeSatisfied (tok, j, i)) {
+                i += resp.j - j;
+                j = resp.j;
                 if (++i === I) {
                     i = 0;
                     rewriteSZArray.push (...to);
@@ -278,21 +280,22 @@ try {
         return ci;
     } // end Object.prototype._genConfidenceInterval
 
-    Object.prototype._scope_satisfied = function(etok, lhs, li, rhs, ri) {
-        if (lhs[li] !== rhs[ri]) return false;
+    Object.prototype._scope_satisfied = function(tok, lhs, l, rhs, r) {
+        if (lhs[l] !== rhs[r]) return false;
 
         const endScope = { "(": ")", "{": "}" };
-        if (!(etok in endScope)) return true;
-
-        const endToken = endScope[etok];
+        if (!(tok in endScope)) return { j : l };
+        const endToken = endScope[tok];
         const I = rhs.length;
+        const J = lhs.length;
 
-        for (let i = 1; ri + i < I; i++) {
-            const ltok = lhs[li + i];
-            const rtok = rhs[ri + i];
+        for (let i = 1; (r + i < I) && (l + i < J); i++) {
+            const ltok = lhs[l + i];
+            const rtok = rhs[r + i];
 
+            //if (/{/.test(ltok)) return this._scope_satisfied (ltok, lhs, l + i, rhs, r + i);
+            if (rtok === endToken) return { j : l + i };
             if (ltok !== rtok) return false;
-            if (rtok === endToken) return true;
         }
 
         return false;
