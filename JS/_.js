@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 4ms (test case 246) */
+    /** Benchmark 1ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -16,81 +16,154 @@ try {
     } // end solveProblem
 
     function parseInput (input) {
-        let lines = input.split ('\n').filter (line => line.trim () && !line.startsWith ('//'));
-        let axioms = new Set ();
+        let lines = input
+            .split ('\n')
+                .filter (line => line.trim () && !line.startsWith ('//'));
+        let axiomsSet = new Set ();
 
-        lines.slice (0, -1).forEach ((line,k,thisArray) => {
-            const parts = line.split (/[~<]?=+[>]?/g).map (s => s.trim ());
-            parts.forEach ((part, i) => {
-                parts.slice (i + 1).forEach ((otherPart, j, me) => {
-                    axioms.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
+        lines
+            .slice ()
+                .forEach ((line,k,thisArray) => {
+                    const parts = line
+                        .split (/[~<]?=+[>]?/g)
+                            .map (s => s.trim ());
+                    parts.forEach ((part, i) => {
+                        parts.slice (i + 1).forEach ((otherPart, j, me) => {
+                            axiomsSet.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
+                        });
+                    });
                 });
-            });
-        });
 
-        const sortedAxioms = Array.from (axioms)
+        const sortedAxioms = Array.from (axiomsSet)
             .map (axiom => {
                 axiom.subnets = axiom.subnets
                     .split (' = ')
                         .sort ((a, b) => a.length <= b.length)
-                            .map ((pair,i,me) => pair.match (/\S+/g));
+                            .map ((pair,i,me) => {
+                                return pair.match (/\S+/g);
+                            });
                 return axiom;
             });
 
-        const proofStatement = lines [lines.length - 1];
+        buildAllSubnetCallGraphsF (sortedAxioms);
+
+        const proofStatement = sortedAxioms [sortedAxioms.length - 1];
 
         return {
             axioms: sortedAxioms,
             proofStatement: proofStatement
         };
+
+        function buildAllSubnetCallGraphsF (unsortedAxiomsArray) {
+            const I = unsortedAxiomsArray.length;
+            const J = unsortedAxiomsArray.length - 1; // disallow root
+
+            for (let i = 0; i < I; i++) {
+                let axiom_00 = unsortedAxiomsArray [i];
+                for (let j = 0; j < J; j++) {
+                    if (i == j) continue ;
+                    let axiom_01 = unsortedAxiomsArray [j];
+                    let [ axiom_01_lhs, axiom_01_rhs ] = axiom_01.subnets;
+                    buildSubnetCallGraphF (axiom_00, j, axiom_01_lhs, 'lhs');
+                    buildSubnetCallGraphF (axiom_00, j, axiom_01_rhs, 'rhs');
+                } // end for (let j = 0; j < J; j++)
+            } // end for (let i = 0; i < I; i++)
+
+        } // end buildSubnetCallGraphs (...)
+
+        function buildSubnetCallGraphF (axiom, i, from, indirectionSZ) {
+            let [ lhs, rhs ] = axiom.subnets;
+            const ci_lhsZ = lhs._tryReplace (from, [true]);
+            const ci_rhsZ = rhs._tryReplace (from, [true]);
+            const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ)); // reduce: lhs => rhs
+            if (ci_lhsZ && subnetReduceFlag) {
+                AddToLHSReduce (axiom, i);
+            } else if (ci_lhsZ) {
+                AddToLHSExpand (axiom, i);
+            }
+            if (ci_rhsZ && subnetReduceFlag) {
+                AddToRHSReduce (axiom, i);
+            } else if (ci_rhsZ) {
+                AddToRHSExpand (axiom, i);
+            }
+        } // end buildSubnetCallGraphF (axiom, from, to)
+
+        function AddToLHSReduce (axiom, i) {
+            (axiom._lhsReduce == undefined) && (axiom._lhsReduce = []);
+            axiom._lhsReduce.push (i);
+        } // end AddToLHSReduce
+
+        function AddToLHSExpand (axiom, i) {
+            (axiom._lhsExpand == undefined) && (axiom._lhsExpand = []);
+            axiom._lhsExpand.push (i);
+        } // end AddToLHSExpand
+
+        function AddToRHSReduce (axiom, i) {
+            (axiom._rhsReduce == undefined) && (axiom._rhsReduce = []);
+            axiom._rhsReduce.push (i);
+        } // end AddToRHSReduce
+
+        function AddToRHSExpand (axiom, i) {
+            (axiom._rhsExpand == undefined) && (axiom._rhsExpand = []);
+            axiom._rhsExpand.push (i);
+        } // end AddToRHSExpand
+
     } // end parseInput
 
     function generateProof (axioms, proofStatement) {
         let steps = [];
-        let [lhs, rhs] = proofStatement
-            .split (/[~<]?=+[>]?/g)
-                .map (s => s.trim ().split (/\s+/));
-
+        let proofsteps = []
+        let [lhs, rhs] = proofStatement.subnets;
         const proofFound = (() => {
             if (lhs.join (' ') == rhs.join (' '))
                 return true;
-            let ret = applyRules ([[...lhs], [...rhs]],'reduce');
+            let ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]],'reduce');
             ret == (lhs.join (' ') == rhs.join (' '));
-            !ret && (steps = []) && (ret = applyRules ([[...lhs], [...rhs]], 'expand'));
+            !ret
+                && (proofsteps.push ([...steps]))
+                    && (steps = [])
+                        && (ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]], 'expand'));
+            proofsteps.push ([...steps]);
             return ret;
         })();
 
-        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-        steps
-            .map ((step, i) => {
-                // update proofstep
-                const { side, result, action, axiomID } = step;
-                const isLHS = side === 'lhs';
-                const currentSide = isLHS ? result : lhs;
-                const otherSide = isLHS ? rhs : result;
+        !proofFound && (result = proofsteps
+            .sort((a,b) => b.length > a.length)
+                .shift());
 
-                // update global expression
-                if (isLHS) {
-                    lhs = result;
-                } else {
-                    rhs = result;
-                }
+        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement.subnets [0].join (' ')} = ${proofStatement.subnets [1].join (' ')}, (root)\n`
+            + steps
+                .map ((step, i) => {
+                    // update proofstep
+                    const { side, result, action, axiomID } = step;
+                    const isLHS = side === 'lhs';
+                    const currentSide = isLHS ? result : lhs;
+                    const otherSide = isLHS ? rhs : result;
 
-                // return rewrite string
-                return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
-            })
-            .join ('\n') +
-                (proofFound ? '\n\nQ.E.D.' : '');
+                    // update global expression
+                    if (isLHS) {
+                        lhs = result;
+                    } else {
+                        rhs = result;
+                    }
 
-        function applyRules (sides, action) {
+                    // return rewrite string
+                    return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
+                })
+                .join ('\n')
+                    + (proofFound ? '\n\nQ.E.D.' : '');
+
+        function applyRules (tmpAxioms, axiomID, sides, action) {
             sides = sides.map ((current,idx,me) => {
+                let lastAxiomID = axiomID;
                 let changed;
                 const side = idx == 0 ? 'lhs' : 'rhs' ;
                 do {
-                    changed = applyRule (current, axioms, action);
+                    changed = applyRule (lastAxiomID, current, tmpAxioms, action);
                     if (changed) {
                         steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [] });
                         current = changed.result;
+                        lastAxiomID = changed.axiomRewriteID;
                     }
                 } while (changed);
                 return current;
@@ -100,44 +173,60 @@ try {
 
     } // end generateProof
 
-    function applyRule (expression, axioms, action) {
-        const I = axioms.length;
+    function applyRule (axiomID, expression, tmpAxioms, action) {
+        const guidZ = (Number(axiomID) === axiomID )
+            ? axiomID
+            : Number(axiomID.match(/(\d+)/)[0]) - 1 ;
+        const axiomIDS = (() => {
+            let tmpA = [];
+            switch (action) {
+                case 'reduce':
+                    if (tmpAxioms [guidZ]?._lhsReduce) {
+                        tmpA.push (
+                            ...tmpAxioms [guidZ]?._lhsReduce
+                        );
+                    } 
+                    if (tmpAxioms [guidZ]?._rhsReduce) {
+                        tmpA.push (
+                            ...tmpAxioms [guidZ]?._rhsReduce
+                        );
+                    }
+                    break;
+                case 'expand':
+                    if (tmpAxioms [guidZ]?._lhsExpand) {
+                        tmpA.push (
+                            ...tmpAxioms [guidZ]?._lhsExpand
+                        );
+                    } 
+                    if (tmpAxioms [guidZ]?._rhsExpand) {
+                        tmpA.push (
+                            ...tmpAxioms [guidZ]?._rhsExpand
+                        );
+                    }
+                    break;
+            } // end switch (action)
+            return tmpA;
+        }) ();
+        const I = axiomIDS.length;
         for (let i = 0; i < I; i++) {
-            const axiom = axioms [i];
+            const uuid = axiomIDS [i];
+            if (uuid == guidZ)
+                continue;
+            const axiom = tmpAxioms [uuid];
             const [left, right] = axiom.subnets;
-            const match = action === 'reduce' ? left : right;
-            const replacer = action === 'reduce' ? right : left;
-            const rewriteFound = expression._tryReplace (match, replacer);
+            const from = action === 'reduce' ? left : right;
+            const to = action === 'reduce' ? right : left;
+            const rewriteFound = expression._tryReplace (from, to);
             if (rewriteFound) {
                 return {
                     result: rewriteFound,
                     axiomID: axiom.axiomID,
+                    axiomRewriteID: uuid,
                 };
             }
-        }
+        } // end for (let i = 0; i < I; i++)
         return null;
     } // end applyRule
-
-    Object.prototype._scope_satisfied = function(tok, lhs, l, rhs, r) {
-        if (lhs[l] !== rhs[r]) return false;
-
-        const endScope = { "(": ")", "{": "}" };
-        if (!(tok in endScope)) return { j : l };
-        const endToken = endScope[tok];
-        const I = rhs.length;
-        const J = lhs.length;
-
-        for (let i = 1; (r + i < I) && (l + i < J); i++) {
-            const ltok = lhs[l + i];
-            const rtok = rhs[r + i];
-
-            //if (/{/.test(ltok)) return this._scope_satisfied (ltok, lhs, l + i, rhs, r + i);
-            if (rtok === endToken) return { j : l + i };
-            if (ltok !== rtok) return false;
-        }
-
-        return false;
-    } // end Object.prototype._scope_satisfied
 
     Object.prototype._tryReplace = function(from, to) {
         if (from.length > this.length) return false;
@@ -171,6 +260,26 @@ try {
             ? rewriteSZArray
             : false;
     } // end Object.prototype._tryReplace
+
+    Object.prototype._scope_satisfied = function(tok, lhs, l, rhs, r) {
+        if (lhs[l] !== rhs[r]) return false;
+
+        const endScope = { "(": ")", "{": "}" };
+        if (!(tok in endScope)) return { j : l };
+        const endToken = endScope[tok];
+        const I = rhs.length;
+        const J = lhs.length;
+
+        for (let i = 1; (r + i < I) && (l + i < J); i++) {
+            const ltok = lhs[l + i];
+            const rtok = rhs[r + i];
+            
+            if (rtok === endToken) return { j : l + i };
+            if (ltok !== rtok) return false;
+        }
+
+        return false;
+    } // end Object.prototype._scope_satisfied
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
