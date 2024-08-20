@@ -73,8 +73,8 @@ try {
 
         function buildSubnetCallGraphF (axiom, i, from, indirectionSZ) {
             let [ lhs, rhs ] = axiom.subnets;
-            const ci_lhsZ = lhs._genConfidenceInterval (from);
-            const ci_rhsZ = rhs._genConfidenceInterval (from);
+            const ci_lhsZ = lhs._tryReplace (from, [true]);
+            const ci_rhsZ = rhs._tryReplace (from, [true]);
             const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ)); // reduce: lhs => rhs
             if (ci_lhsZ && subnetReduceFlag) {
                 AddToLHSReduce (axiom, i);
@@ -155,14 +155,15 @@ try {
 
         function applyRules (tmpAxioms, axiomID, sides, action) {
             sides = sides.map ((current,idx,me) => {
+                let lastAxiomID = axiomID;
                 let changed;
                 const side = idx == 0 ? 'lhs' : 'rhs' ;
                 do {
-                    changed = applyRule (axiomID, current, tmpAxioms, action);
+                    changed = applyRule (lastAxiomID, current, tmpAxioms, action);
                     if (changed) {
                         steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [] });
                         current = changed.result;
-                        axiomID = changed.axiomRewriteID;
+                        lastAxiomID = changed.axiomRewriteID;
                     }
                 } while (changed);
                 return current;
@@ -184,7 +185,8 @@ try {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._lhsReduce
                         );
-                    } else if (tmpAxioms [guidZ]?._rhsReduce) {
+                    } 
+                    if (tmpAxioms [guidZ]?._rhsReduce) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._rhsReduce
                         );
@@ -195,7 +197,8 @@ try {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._lhsExpand
                         );
-                    } else if (tmpAxioms [guidZ]?._rhsExpand) {
+                    } 
+                    if (tmpAxioms [guidZ]?._rhsExpand) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._rhsExpand
                         );
@@ -207,7 +210,8 @@ try {
         const I = axiomIDS.length;
         for (let i = 0; i < I; i++) {
             const uuid = axiomIDS [i];
-            if (uuid == guidZ) continue;
+            if (uuid == guidZ)
+                continue;
             const axiom = tmpAxioms [uuid];
             const [left, right] = axiom.subnets;
             const from = action === 'reduce' ? left : right;
@@ -263,7 +267,7 @@ try {
         let i = 0;
         const I = from.length;
         const J = this.length;
-        let ci = 0;;
+        let ci = 0;
         const boundScopeSatisfied = (tok,j,i) =>
             from[i] == this[j]
                 && ++ci
