@@ -29,7 +29,7 @@ try {
                             .map (s => s.trim ());
                     parts.forEach ((part, i) => {
                         parts.slice (i + 1).forEach ((otherPart, j, me) => {
-                            axiomsSet.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
+                            axiomsSet.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0` , guidZ: k });
                         });
                     });
                 });
@@ -117,12 +117,12 @@ try {
         const proofFound = (() => {
             if (lhs.join (' ') == rhs.join (' '))
                 return true;
-            let ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]],'reduce');
+            let ret = applyRules (axioms, proofStatement.guidZ, [[...lhs], [...rhs]],'reduce');
             ret == (lhs.join (' ') == rhs.join (' '));
             !ret
                 && (proofsteps.push ([...steps]))
                     && (steps = [])
-                        && (ret = applyRules (axioms, proofStatement.axiomID, [[...lhs], [...rhs]], 'expand'));
+                        && (ret = applyRules (axioms, proofStatement.guidZ, [[...lhs], [...rhs]], 'expand'));
             proofsteps.push ([...steps]);
             return ret;
         })();
@@ -153,17 +153,17 @@ try {
                 .join ('\n')
                     + (proofFound ? '\n\nQ.E.D.' : '');
 
-        function applyRules (tmpAxioms, axiomID, sides, action) {
+        function applyRules (tmpAxioms, guidZ, sides, action) {
             sides = sides.map ((current,idx,me) => {
-                let lastAxiomID = axiomID;
+                let lastGUIDZ = guidZ;
                 let changed;
                 const side = idx == 0 ? 'lhs' : 'rhs' ;
                 do {
-                    changed = applyRule (lastAxiomID, current, tmpAxioms, action);
+                    changed = applyRule (lastGUIDZ, current, tmpAxioms, action);
                     if (changed) {
                         steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [] });
                         current = changed.result;
-                        lastAxiomID = changed.axiomRewriteID;
+                        lastGUIDZ = changed.axiomRewriteID;
                     }
                 } while (changed);
                 return current;
@@ -173,10 +173,7 @@ try {
 
     } // end generateProof
 
-    function applyRule (axiomID, expression, tmpAxioms, action) {
-        const guidZ = (Number(axiomID) === axiomID )
-            ? axiomID
-            : Number(axiomID.match(/(\d+)/)[0]) - 1 ;
+    function applyRule (guidZ, expression, tmpAxioms, action) {
         const axiomIDS = (() => {
             let tmpA = [];
             switch (action) {
