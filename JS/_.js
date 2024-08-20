@@ -118,13 +118,12 @@ try {
         return null;
     } // end applyRule
 
-    Object.prototype._scope_satisfied = function(etok, lhs, l, rhs, r) {
+    Object.prototype._scope_satisfied = function(tok, lhs, l, rhs, r) {
         if (lhs[l] !== rhs[r]) return false;
 
         const endScope = { "(": ")", "{": "}" };
-        if (!(etok in endScope)) return { j : l };
-
-        const endToken = endScope[etok];
+        if (!(tok in endScope)) return { j : l };
+        const endToken = endScope[tok];
         const I = rhs.length;
         const J = lhs.length;
 
@@ -132,8 +131,9 @@ try {
             const ltok = lhs[l + i];
             const rtok = rhs[r + i];
 
-            if (ltok !== rtok) return false;
+            //if (/{/.test(ltok)) return this._scope_satisfied (ltok, lhs, l + i, rhs, r + i);
             if (rtok === endToken) return { j : l + i };
+            if (ltok !== rtok) return false;
         }
 
         return false;
@@ -147,11 +147,8 @@ try {
         const J = this.length;
         const rewriteSZArray = [];
         let rewriteFoundFlag = false;
-        const boundScopeSatisfied = (tok,j,i) =>{
-            if (from[i] == this[j])
-                return this._scope_satisfied(tok, this, j, from, i);
-            return false;
-        };
+        const boundScopeSatisfied = (tok,j,i) => 
+            this._scope_satisfied(tok, this, j, from, i);
 
         let resp;
         for (let j = 0; j < J; j++) {
