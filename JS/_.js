@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark: 5ms (test case 246) */
+    /** Benchmark: 2ms (test case 246) */
     
     const NUM_WORKERS = 4;
     const _workerScript = 
@@ -15,76 +15,104 @@ self.onmessage = function (e) {
     self.proofFoundEvent = false;
     const { data, strategy } = e.data;
     ({ rewriteStrategy, subnet, lhs, rhs, axioms, steps, proofStatement, startTime } = data);
-    const result = applyRules ([[...lhs], [...rhs]], strategy, axioms);
+    const result = applyRules (axioms, proofStatement.guidZ, [[...lhs], [...rhs]], strategy);
     self.postMessage({ proofFound: result, steps: steps?.length > 0 ? steps : [], proofStatement, rewriteStrategy, subnet, lhs, rhs, startTime });
     return;
 
-    function applyRules (sides, action) {
+    function applyRules (tmpAxioms, guidZ, sides, action) {
         sides = sides.map ((current,idx,me) => {
+            let lastGUIDZ = guidZ;
             let changed;
             const side = idx == 0 ? 'lhs' : 'rhs' ;
             do {
-                changed = applyRule (current, axioms, action);
+                changed = applyRule (lastGUIDZ, current, tmpAxioms, action);
                 if (changed) {
                     steps.push ({ side, action, result: [...changed.result], axiomID: changed.axiomID, other: [] });
                     current = changed.result;
+                    lastGUIDZ = changed.axiomRewriteID;
                 }
             } while (changed);
             return current;
         });
-        return (sides [0].join (' ') == sides [1].join (' '));            
+        return (sides [0].join (' ') == sides [1].join (' '));
 
-        function applyRule (expression, axioms, action) {
-            const I = axioms.length;
-            for (let i = 0; i < I && self.proofFoundEvent == false; i++) {
-                const axiom = axioms [i];
+        function applyRule (guidZ, expression, tmpAxioms, action) {
+            const axiomIDS = (() => {
+                let tmpA = [];
+                switch (action) {
+                    case 'reduce':
+                        if (tmpAxioms [guidZ]?._lhsReduce) {
+                            tmpA.push (
+                                ...tmpAxioms [guidZ]?._lhsReduce
+                            );
+                        } 
+                        if (tmpAxioms [guidZ]?._rhsReduce) {
+                            tmpA.push (
+                                ...tmpAxioms [guidZ]?._rhsReduce
+                            );
+                        }
+                        break;
+                    case 'expand':
+                        if (tmpAxioms [guidZ]?._lhsExpand) {
+                            tmpA.push (
+                                ...tmpAxioms [guidZ]?._lhsExpand
+                            );
+                        } 
+                        if (tmpAxioms [guidZ]?._rhsExpand) {
+                            tmpA.push (
+                                ...tmpAxioms [guidZ]?._rhsExpand
+                            );
+                        }
+                        break;
+                } // end switch (action)
+                return tmpA;
+            }) ();
+            const I = axiomIDS.length;
+            for (let i = 0; i < I; i++) {
+                const uuid = axiomIDS [i];
+                if (uuid == guidZ)
+                    continue;
+                const axiom = tmpAxioms [uuid];
                 const [left, right] = axiom.subnets;
-                const match = action === 'reduce' ? left : right;
-                const replacer = action === 'reduce' ? right : left;
-                const rewriteFound = expression._tryReplace (match, replacer);
+                const from = action === 'reduce' ? left : right;
+                const to = action === 'reduce' ? right : left;
+                const rewriteFound = expression._tryReplace (from, to);
                 if (rewriteFound) {
                     return {
                         result: rewriteFound,
                         axiomID: axiom.axiomID,
+                        axiomRewriteID: uuid,
                     };
                 }
-            }
+            } // end for (let i = 0; i < I; i++)
             return null;
         } // end applyRule
+
     } // end applyRules
-}
 
-Object.prototype._scope_satisfied = function(etok,lhs,li,rhs,ri){
-    var i = 1;
-    var end_scope = { "(":")", "{":"}" };
-    var sat = true;
-    if (lhs[li] != rhs[ri]) {
-        sat = false;
-    } else if (etok in end_scope) {
-        if (((li+i) in lhs) && ((ri+i) in rhs)) {
-            var ltok = lhs [li+i];
-            var rtok = rhs [ri+i];
-            var I = rhs.length; // Math.min(lhs.length,rhs.length) //
-            etok = end_scope [etok];
-            while (i++<I){
-                if (ltok!=rtok){
-                    sat = false;
-                    break;
-                }
-                if(rtok == etok){
-                    break;
-                }
-                ltok = lhs[li+i];
-                rtok = rhs[ri+i];
-            }
-        } else {
-            sat = false;
-        }
-    } // test(etok) //
-    return sat;
-} // end Object.prototype._scope_satisfied
+} // end self.onmessage
 
-Object.prototype._tryReplace = function(from, to) {
+function _scope_satisfied(tok, lhs, l, rhs, r) {
+    if (lhs[l] !== rhs[r]) return false;
+
+    const endScope = { "(": ")", "{": "}" };
+    if (!(tok in endScope)) return { j : l };
+    const endToken = endScope[tok];
+    const I = rhs.length;
+    const J = lhs.length;
+
+    for (let i = 1; (r + i < I) && (l + i < J); i++) {
+        const ltok = lhs[l + i];
+        const rtok = rhs[r + i];
+        
+        if (rtok === endToken) return { j : l + i };
+        if (ltok !== rtok) return false;
+    }
+
+    return false;
+} // end _scope_satisfied
+
+Array.prototype._tryReplace = function(from, to) {
     if (from.length > this.length) return false;
 
     let i = 0;
@@ -92,13 +120,15 @@ Object.prototype._tryReplace = function(from, to) {
     const J = this.length;
     const rewriteSZArray = [];
     let rewriteFoundFlag = false;
-    const boundScopeSatisfied = (tok,j,i) =>
-        from[i] == this[j]
-            && this._scope_satisfied(tok, this, j, from, i);
+    const boundScopeSatisfied = (tok,j,i) => 
+        _scope_satisfied(tok, this, j, from, i);
 
+    let resp;
     for (let j = 0; j < J; j++) {
         const tok = this [j];
-        if (boundScopeSatisfied (tok, j, i)) {
+        if (resp = boundScopeSatisfied (tok, j, i)) {
+            i += resp.j - j;
+            j = resp.j;
             if (++i === I) {
                 i = 0;
                 rewriteSZArray.push (...to);
@@ -113,19 +143,16 @@ Object.prototype._tryReplace = function(from, to) {
     return rewriteFoundFlag
         ? rewriteSZArray
         : false;
-} // end Object.prototype._tryReplace
+} // end Array.prototype._tryReplace
 `;
 
     // Create an ArrayBuffer to store the counters
     const _sharedCounters = new Uint8Array(2);
-
-    // Index 0 for _allReduceCompletedWorkersZ, index 1 for _allExpandCompletedWorkersZ
+    
     const REDUCE_INDEX = 0;
     const EXPAND_INDEX = 1;
 
     let _results = new Map ();
-    /* let _allReduceCompletedWorkersZ = 0; */
-    /* let _allExpandCompletedWorkersZ = 0; */
     const blob = new Blob([_workerScript], { type: 'application/javascript' });
     const workers = Array.from({ length: NUM_WORKERS }, (_,idx,me) => {
         let w = new Worker(URL.createObjectURL(blob));
@@ -138,14 +165,14 @@ Object.prototype._tryReplace = function(from, to) {
                 
                 const tmpCompletedWorkersZ = ((i) => {
                     (tmpIndir == 'reduce') 
-                        ? Atomics.add (_sharedCounters, REDUCE_INDEX, 1) /* ++_allReduceCompletedWorkersZ */ 
-                        : Atomics.add (_sharedCounters, EXPAND_INDEX, 1) /* ++_allExpandCompletedWorkersZ */ ;
+                        ? Atomics.add (_sharedCounters, REDUCE_INDEX, 1) 
+                        : Atomics.add (_sharedCounters, EXPAND_INDEX, 1) ;
                     const retvalZ = (tmpIndir == 'reduce') 
-                        ? Atomics.load (_sharedCounters, REDUCE_INDEX) /* ++_allReduceCompletedWorkersZ */ 
-                        : Atomics.load (_sharedCounters, EXPAND_INDEX) /* ++_allExpandCompletedWorkersZ */ ;
+                        ? Atomics.load (_sharedCounters, REDUCE_INDEX)
+                        : Atomics.load (_sharedCounters, EXPAND_INDEX) ;
                     return retvalZ;
                 })(0);
-                const allWorkersCompleted = (Atomics.load (_sharedCounters, REDUCE_INDEX)/* _allReduceCompletedWorkersZ */ == 2 && Atomics.load (_sharedCounters, EXPAND_INDEX)/* _allExpandCompletedWorkersZ */ == 2);
+                const allWorkersCompleted = (Atomics.load (_sharedCounters, REDUCE_INDEX) == 2 && Atomics.load (_sharedCounters, EXPAND_INDEX) == 2);
                 if(_results.get (tmpIndir) == null)
                     _results.set (tmpIndir, []);                    
                 const tmpResults = _results.get (tmpIndir);
@@ -206,27 +233,28 @@ Object.prototype._tryReplace = function(from, to) {
                 }
                 if (bestResult) {
                     ({ lhs, rhs, proofStatement, startTime } = bestResult);
-                    const proofStackString = `${bestResult.proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement}, (root)\n` +
-                    bestResult.steps
-                        .map((step, i, thisArray) => {
-                            // update proofstep
-                            const { side, result, action, axiomID } = step;
-                            const isLHS = side === 'lhs';
-                            const currentSide = isLHS ? result : lhs;
-                            const otherSide = isLHS ? rhs : result;
-                            
-                            // update global expression
-                            if (isLHS) {
-                                lhs = result;
-                            } else {
-                                rhs = result;
-                            }
-                    
-                            // return rewrite string
-                            return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
-                        })
-                        .join('\n') +
-                            (bestResult.proofFound ? '\n\nQ.E.D.' : '');
+                    const proofStackString = `${bestResult.proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement.subnets[0].join(' ')} = ${proofStatement.subnets[1].join(' ')}, (root)\n` +
+                        bestResult.steps
+                            .map((step, i, thisArray) => {
+                                // update proofstep
+                                const { side, result, action, axiomID } = step;
+                                const isLHS = side === 'lhs';
+                                const currentSide = isLHS ? result : lhs;
+                                const otherSide = isLHS ? rhs : result;
+                                
+                                // update global expression
+                                if (isLHS) {
+                                    lhs = result;
+                                } else {
+                                    rhs = result;
+                                }
+                        
+                                // return rewrite string
+                                return `${currentSide.join(' ')} = ${otherSide.join(' ')}, (${side} ${action}) via ${axiomID}`;
+                            })
+                            .join('\n') +
+                                (bestResult.proofFound ? '\n\nQ.E.D.' : '');
+
                     _output.value = proofStackString + `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
                 } // end if (bestResult)
                 
@@ -250,54 +278,107 @@ Object.prototype._tryReplace = function(from, to) {
         generateProof (axioms, proofStatement, _output);
     } // end solveProblem
 
-    function parseInput(input) {
+    function parseInput (input) {
         let lines = input
-            .split('\n')
-                .filter(line => line.trim() && !line.startsWith('//'));
-        let axioms = new Set ();
+            .split ('\n')
+                .filter (line => line.trim () && !line.startsWith ('//'));
+        let axiomsSet = new Set ();
 
         lines
-            .slice(0, -1)
-                .forEach((line,k,thisArray) => {
-                    const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
-                    parts.forEach((part, i) => {
-                        parts.slice(i + 1).forEach((otherPart, j, me) => {
-                            axioms.add({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0`});
+            .slice ()
+                .forEach ((line,k,thisArray) => {
+                    const parts = line
+                        .split (/[~<]?=+[>]?/g)
+                            .map (s => s.trim ());
+                    parts.forEach ((part, i) => {
+                        parts.slice (i + 1).forEach ((otherPart, j, me) => {
+                            axiomsSet.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0` , guidZ: k });
                         });
                     });
                 });
 
-        const sortedAxioms = Array
-            .from(axioms)
-                .map(axiom => {
-                    axiom.subnets = axiom.subnets
-                        .split(' = ')
-                            .sort((a, b) => a.length <= b.length)
-                                .map((pair,i,me) => pair.split(/\s+/));
-                    return axiom;
-                });
+        const sortedAxioms = Array.from (axiomsSet)
+            .map (axiom => {
+                axiom.subnets = axiom.subnets
+                    .split (' = ')
+                        .sort ((a, b) => a.length <= b.length)
+                            .map ((pair,i,me) => {
+                                return pair.match (/\S+/g);
+                            });
+                return axiom;
+            });
 
-        const proofStatement = lines[lines.length - 1];
+        buildAllSubnetCallGraphsF (sortedAxioms);
+
+        const proofStatement = sortedAxioms [sortedAxioms.length - 1];
 
         return {
             axioms: sortedAxioms,
             proofStatement: proofStatement
         };
+
+        function buildAllSubnetCallGraphsF (unsortedAxiomsArray) {
+            const I = unsortedAxiomsArray.length;
+            const J = unsortedAxiomsArray.length - 1; // disallow root
+
+            for (let i = 0; i < I; i++) {
+                let axiom_00 = unsortedAxiomsArray [i];
+                for (let j = 0; j < J; j++) {
+                    if (i == j) continue ;
+                    let axiom_01 = unsortedAxiomsArray [j];
+                    let [ axiom_01_lhs, axiom_01_rhs ] = axiom_01.subnets;
+                    buildSubnetCallGraphF (axiom_00, j, axiom_01_lhs, 'lhs');
+                    buildSubnetCallGraphF (axiom_00, j, axiom_01_rhs, 'rhs');
+                } // end for (let j = 0; j < J; j++)
+            } // end for (let i = 0; i < I; i++)
+
+        } // end buildSubnetCallGraphs (...)
+
+        function buildSubnetCallGraphF (axiom, i, from, indirectionSZ) {
+            let [ lhs, rhs ] = axiom.subnets;
+            const ci_lhsZ = lhs._tryReplace (from, [true]);
+            const ci_rhsZ = rhs._tryReplace (from, [true]);
+            const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ)); // reduce operation: lhs => rhs
+            if (ci_lhsZ && subnetReduceFlag) {
+                AddToLHSReduce (axiom, i);
+            } else if (ci_lhsZ) {
+                AddToLHSExpand (axiom, i);
+            }
+            if (ci_rhsZ && subnetReduceFlag) {
+                AddToRHSReduce (axiom, i);
+            } else if (ci_rhsZ) {
+                AddToRHSExpand (axiom, i);
+            }
+        } // end buildSubnetCallGraphF (axiom, from, to)
+
+        function AddToLHSReduce (axiom, i) {
+            (axiom._lhsReduce == undefined) && (axiom._lhsReduce = []);
+            axiom._lhsReduce.push (i);
+        } // end AddToLHSReduce
+
+        function AddToLHSExpand (axiom, i) {
+            (axiom._lhsExpand == undefined) && (axiom._lhsExpand = []);
+            axiom._lhsExpand.push (i);
+        } // end AddToLHSExpand
+
+        function AddToRHSReduce (axiom, i) {
+            (axiom._rhsReduce == undefined) && (axiom._rhsReduce = []);
+            axiom._rhsReduce.push (i);
+        } // end AddToRHSReduce
+
+        function AddToRHSExpand (axiom, i) {
+            (axiom._rhsExpand == undefined) && (axiom._rhsExpand = []);
+            axiom._rhsExpand.push (i);
+        } // end AddToRHSExpand
+
     } // end parseInput
 
     function generateProof (axioms, proofStatement, _) {
         let steps = [];
-        let [lhs, rhs] = proofStatement
-            .split (/[~<]?=+[>]?/g)
-                .map ((u,idx,me) => {
-                    const ret = u.match (/\S+/g);
-                    return ret;
-                });
+        let [lhs, rhs] = proofStatement.subnets;
 
-        /* let */ _sharedCounters[0] = _sharedCounters[1] = 0;
-        /* let */ _results = new Map ();
-        /* let _allReduceCompletedWorkersZ = 0; */
-        /* let _allExpandCompletedWorkersZ = 0; */
+        _sharedCounters[0] = _sharedCounters[1] = 0;
+        _results = new Map ();
         const startTime = performance.now ();
 
         const workerData = [
@@ -341,7 +422,7 @@ Object.prototype._tryReplace = function(from, to) {
                 proofStatement: proofStatement,
                 startTime: startTime,
             },
-        ];
+        ]; // end workerData[]
 
         workers.forEach((w,idx,me) => {
             const tmpwWorkerData = workerData[idx];
@@ -351,8 +432,61 @@ Object.prototype._tryReplace = function(from, to) {
             });
         }); // end workers.forEach
 
-        _output.value = "Working...";
+        //_output.value = "Working...";
     } // end generateProof
+
+    function _scope_satisfied(tok, lhs, l, rhs, r) {
+        if (lhs[l] !== rhs[r]) return false;
+
+        const endScope = { "(": ")", "{": "}" };
+        if (!(tok in endScope)) return { j : l };
+        const endToken = endScope[tok];
+        const I = rhs.length;
+        const J = lhs.length;
+
+        for (let i = 1; (r + i < I) && (l + i < J); i++) {
+            const ltok = lhs[l + i];
+            const rtok = rhs[r + i];
+            
+            if (rtok === endToken) return { j : l + i };
+            if (ltok !== rtok) return false;
+        }
+
+        return false;
+    } // end _scope_satisfied
+
+    Array.prototype._tryReplace = function(from, to) {
+        if (from.length > this.length) return false;
+    
+        let i = 0;
+        const I = from.length;
+        const J = this.length;
+        const rewriteSZArray = [];
+        let rewriteFoundFlag = false;
+        const boundScopeSatisfied = (tok,j,i) => 
+            _scope_satisfied(tok, this, j, from, i);
+    
+        let resp;
+        for (let j = 0; j < J; j++) {
+            const tok = this [j];
+            if (resp = boundScopeSatisfied (tok, j, i)) {
+                i += resp.j - j;
+                j = resp.j;
+                if (++i === I) {
+                    i = 0;
+                    rewriteSZArray.push (...to);
+                    rewriteFoundFlag = true;
+                    continue;
+                }
+            } else {
+                rewriteSZArray.push (tok);
+            }
+        }
+    
+        return rewriteFoundFlag
+            ? rewriteSZArray
+            : false;
+    } // end Object.prototype._tryReplace
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
