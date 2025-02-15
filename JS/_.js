@@ -118,6 +118,75 @@ try {
         let proofsteps = []
         let [lhs, rhs] = proofStatement.subnets;
         const proofFound = (() => {
+            let proofFoundFlag = false
+            let lhs_rewriteStep = [...lhs];
+            let rhs_rewritestep = [...rhs];
+            let lhs_commitHistory = new Set();
+            let rhs_commitHistory = new Set();
+            const w = reduceLHS([...lhs], axioms);
+            const x = reduceRHS([...rhs], axioms);
+            const y = expandLHS([...lhs], axioms);
+            const z = expandRHS([...rhs], axioms);
+            let lhs_reduce_completed = false;
+            let rhs_reduce_completed = false;
+            let lhs_expand_completed = false;
+            let rhs_expand_completed = false;
+            //let reduce_rewriteProofsteps = [[[...lhs],[...rhs]]];
+            //let expand_rewriteProofsteps = [[[...lhs],[...rhs]]];
+            let ret = proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
+            do {
+                if (proofFoundFlag)
+                    break;      
+            } while ( 
+                w?.next()?.value 
+                    + x?.next()?.value 
+                        + y?.next()?.value 
+                            + z?.next()?.value );
+            return ret;
+            
+            function* reduceLHS(_lhs, _axioms) {
+                if (proofFoundFlag + lhs_reduce_completed)
+                    return 0;
+                for (let axiom of _axioms) {
+                    const op = `${axiom.axiomID}:reduce:${_lhs.join(' ')}`;
+                    axiom;
+                    yield 1;
+                }                
+            } // end reduceLHS
+
+            function* reduceRHS(_rhs, _axioms) {
+                if (proofFoundFlag + rhs_reduce_completed)
+                    return 0;
+                for (let axiom of _axioms) {
+                    const op = `${axiom.axiomID}:reduce:${_rhs.join(' ')}`;
+                    axiom;
+                    yield 1;
+                }                
+            } // end reduceRHS
+
+            function* expandLHS(_lhs, _axioms) {
+                if (proofFoundFlag + lhs_expand_completed)
+                    return 0;
+                for (let axiom of _axioms) {
+                    const op = `${axiom.axiomID}:expand:${_lhs.join(' ')}`;
+                    axiom;
+                    yield 1;
+                }
+                
+            } // end expandLHS
+
+            function* expandRHS(_rhs, _axioms) {
+                if (proofFoundFlag + lhs_expand_completed)
+                    return 0;
+                for (let axiom of _axioms) {
+                    const op = `${axiom.axiomID}:expand:${_rhs.join(' ')}`;
+                    axiom;
+                    yield 1;
+                }
+                
+            } // end expandRHS
+
+            /*
             if (lhs.join (' ') == rhs.join (' '))
                 return true;
             let ret = applyAxioms (axioms, proofStatement.guidZ, [[...lhs], [...rhs]],'reduce');
@@ -129,6 +198,7 @@ try {
                         && (ret = applyAxioms (axioms, proofStatement.guidZ, [[...lhs], [...rhs]], 'expand'));
             proofsteps.push ([...steps]);
             return ret;
+            */
         })();
 
         !proofFound 
