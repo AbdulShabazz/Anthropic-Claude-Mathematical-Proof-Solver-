@@ -149,7 +149,9 @@ try {
                     return 0;
                 for (let axiom of _axioms) {
                     let tmp = [..._lhs];
+                    // TODO: const op = `${_lhs.join(' ')}`;
                     const op = `${axiom.axiomID}:${_lhs.join(' ')}`;
+                    // TODO: refactor: [lr]hs_commitHistory { [op]:{ [axiomID]:{ reducedFlag:bool, expandedFlag:bool }, commitHistory:[{ gID:String, commit:Array }] } }
                     if (lhs_commitHistory.has(op) && lhs_commitHistory.get(op).reducedFlag)
                         continue;
                     else if (lhs_commitHistory.has(op)) {
@@ -161,6 +163,7 @@ try {
                     const to = [...axiom.subnets[1]];
                     const rewriteFoundFlag = tmp._tryReplace(from,to);
                     if (rewriteFoundFlag) {
+                        // TODO: clone commitHistory to current rewrite, and add rewrite as last commit
                         lhs_commitHistory
                             .get(op)
                             .commitHistory
