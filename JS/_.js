@@ -118,11 +118,11 @@ try {
         let proofsteps = []
         let [lhs, rhs] = proofStatement.subnets;
         const proofFound = (() => {
-            let proofFoundFlag = false
-            let lhs_rewriteStep = [...lhs];
-            let rhs_rewritestep = [...rhs];
-            let lhs_commitHistory = new Set();
-            let rhs_commitHistory = new Set();
+            let proofFoundFlag = false;
+            //let lhs_rewriteStep = [...lhs];
+            //let rhs_rewritestep = [...rhs];
+            let lhs_commitHistory = new Map();
+            let rhs_commitHistory = new Map();
             const w = reduceLHS([...lhs], axioms);
             const x = reduceRHS([...rhs], axioms);
             const y = expandLHS([...lhs], axioms);
@@ -133,57 +133,144 @@ try {
             let rhs_expand_completed = false;
             //let reduce_rewriteProofsteps = [[[...lhs],[...rhs]]];
             //let expand_rewriteProofsteps = [[[...lhs],[...rhs]]];
-            let ret = proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
+            proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
             do {
                 if (proofFoundFlag)
-                    break;      
-            } while ( 
-                w?.next()?.value 
-                    + x?.next()?.value 
-                        + y?.next()?.value 
-                            + z?.next()?.value );
-            return ret;
-            
+                    break;
+            } while (
+                w?.next()?.value
+                    + x?.next()?.value
+                    + y?.next()?.value
+                    + z?.next()?.value );
+            return proofFoundFlag;
+
             function* reduceLHS(_lhs, _axioms) {
-                if (proofFoundFlag + lhs_reduce_completed)
+                if (proofFoundFlag || lhs_reduce_completed)
                     return 0;
                 for (let axiom of _axioms) {
-                    const op = `${axiom.axiomID}:reduce:${_lhs.join(' ')}`;
-                    axiom;
-                    yield 1;
-                }                
+                    let tmp = [..._lhs];
+                    const op = `${axiom.axiomID}:${_lhs.join(' ')}`;
+                    if (lhs_commitHistory.has(op) && lhs_commitHistory.get(op).reducedFlag)
+                        continue;
+                    else if (lhs_commitHistory.has(op)) {
+                        lhs_commitHistory.get(op).reducedFlag = true;
+                    } else {
+                        lhs_commitHistory.set(op, { commitHistory:[{ gID:"root", commit:[...tmp] }] });
+                    }
+                    const from = [...axiom.subnets[0]];
+                    const to = [...axiom.subnets[1]];
+                    const rewriteFoundFlag = tmp._tryReplace(from,to);
+                    if (rewriteFoundFlag) {
+                        lhs_commitHistory
+                            .get(op)
+                            .commitHistory
+                            .push({ gID:`lhs reduce via ${axiom.axiomID}`, commit: [...tmp] });
+                        if (!rhs_commitHistory.has(op)) 
+                            yield 1;
+                        else {
+                            proofFoundFlag = true;
+                            return 1;
+                        }
+                    } // end if (rewriteFoundFlag)
+                } // end for (let axiom of _axioms)
+                lhs_reduce_completed = true;
+                return 0;
             } // end reduceLHS
 
             function* reduceRHS(_rhs, _axioms) {
-                if (proofFoundFlag + rhs_reduce_completed)
+                if (proofFoundFlag || rhs_reduce_completed)
                     return 0;
                 for (let axiom of _axioms) {
-                    const op = `${axiom.axiomID}:reduce:${_rhs.join(' ')}`;
-                    axiom;
-                    yield 1;
-                }                
+                    let tmp = [..._rhs];
+                    const op = `${axiom.axiomID}:${_rhs.join(' ')}`;
+                    if (rhs_commitHistory.has(op) && rhs_commitHistory.get(op).reducedFlag)
+                        continue;
+                    else if (rhs_commitHistory.has(op)) {
+                        rhs_commitHistory.get(op).reducedFlag = true;
+                    } else {
+                        rhs_commitHistory.set(op, { commitHistory:[{ gID:"root", commit:[...tmp] }] });
+                    }
+                    const from = [...axiom.subnets[0]];
+                    const to = [...axiom.subnets[1]];
+                    const rewriteFoundFlag = tmp._tryReplace(from,to);
+                    if (rewriteFoundFlag) {
+                        rhs_commitHistory
+                            .get(op)
+                            .commitHistory
+                            .push({ gID:`rhs reduce via ${axiom.axiomID}`, commit: [...tmp] });
+                        if (!lhs_commitHistory.has(op)) 
+                            yield 1;
+                        else {
+                            proofFoundFlag = true;
+                            return 1;
+                        }
+                    } // end if (rewriteFoundFlag)
+                } // end for (let axiom of _axioms)
+                rhs_reduce_completed = true;
             } // end reduceRHS
 
             function* expandLHS(_lhs, _axioms) {
-                if (proofFoundFlag + lhs_expand_completed)
+                if (proofFoundFlag || lhs_expand_completed)
                     return 0;
                 for (let axiom of _axioms) {
-                    const op = `${axiom.axiomID}:expand:${_lhs.join(' ')}`;
-                    axiom;
-                    yield 1;
-                }
-                
+                    let tmp = [..._lhs];
+                    const op = `${axiom.axiomID}:${_lhs.join(' ')}`;
+                    if (lhs_commitHistory.has(op) && lhs_commitHistory.get(op).expandedFlag)
+                        continue;
+                    else if (lhs_commitHistory.has(op)) {
+                        lhs_commitHistory.get(op).expandedFlag = true;
+                    } else {
+                        lhs_commitHistory.set(op, { commitHistory:[{ gID:"root", commit:[...tmp] }] });
+                    }
+                    const from = [...axiom.subnets[1]];
+                    const to = [...axiom.subnets[0]];
+                    const rewriteFoundFlag = tmp._tryReplace(from,to);
+                    if (rewriteFoundFlag) {
+                        lhs_commitHistory
+                            .get(op)
+                            .commitHistory
+                            .push({ gID:`lhs expand via ${axiom.axiomID}`, commit: [...tmp] });
+                        if (!rhs_commitHistory.has(op)) 
+                            yield 1;
+                        else {
+                            proofFoundFlag = true;
+                            return 1;
+                        }
+                    } // end if (rewriteFoundFlag)
+                } // end for (let axiom of _axioms)
+                lhs_expand_completed = true;
             } // end expandLHS
 
             function* expandRHS(_rhs, _axioms) {
-                if (proofFoundFlag + lhs_expand_completed)
+                if (proofFoundFlag || rhs_expand_completed)
                     return 0;
                 for (let axiom of _axioms) {
-                    const op = `${axiom.axiomID}:expand:${_rhs.join(' ')}`;
-                    axiom;
-                    yield 1;
-                }
-                
+                    let tmp = [..._rhs];
+                    const op = `${axiom.axiomID}:${_rhs.join(' ')}`;
+                    if (rhs_commitHistory.has(op) && rhs_commitHistory.get(op).expandedFlag)
+                        continue;
+                    else if (rhs_commitHistory.has(op)) {
+                        rhs_commitHistory.get(op).expandedFlag = true;
+                    } else {
+                        rhs_commitHistory.set(op, { commitHistory:[{ gID:"root", commit:[...tmp] }] });
+                    }
+                    const from = [...axiom.subnets[1]];
+                    const to = [...axiom.subnets[0]];
+                    const rewriteFoundFlag = tmp._tryReplace(from,to);
+                    if (rewriteFoundFlag) {
+                        rhs_commitHistory
+                            .get(op)
+                            .commitHistory
+                            .push({ gID:`lhs expand via ${axiom.axiomID}`, commit: [...tmp] });
+                        if (!lhs_commitHistory.has(op)) 
+                            yield 1;
+                        else {
+                            proofFoundFlag = true;
+                            return 1;
+                        }
+                    } // end if (rewriteFoundFlag)
+                } // end for (let axiom of _axioms)
+                rhs_expand_completed = true;
             } // end expandRHS
 
             /*
@@ -201,7 +288,7 @@ try {
             */
         })();
 
-        !proofFound 
+        !proofFound
             && (result = proofsteps
                 .sort((a,b) => b.length > a.length)
                     .shift());
@@ -277,7 +364,7 @@ try {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._lhsReduce
                         );
-                    } 
+                    }
                     if (tmpAxioms [guidZ]?._rhsReduce) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._rhsReduce
@@ -289,7 +376,7 @@ try {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._lhsExpand
                         );
-                    } 
+                    }
                     if (tmpAxioms [guidZ]?._rhsExpand) {
                         tmpA.push (
                             ...tmpAxioms [guidZ]?._rhsExpand
@@ -329,7 +416,7 @@ try {
         const J = this.length;
         const rewriteSZArray = [];
         let rewriteFoundFlag = false;
-        const boundScopeSatisfied = (tok,j,i) => 
+        const boundScopeSatisfied = (tok,j,i) =>
             this._scope_satisfied(tok, this, j, from, i);
 
         let resp;
@@ -366,7 +453,7 @@ try {
         for (let i = 1; (r + i < I) && (l + i < J); i++) {
             const ltok = lhs[l + i];
             const rtok = rhs[r + i];
-            
+
             if (rtok === endToken) return { j : l + i };
             if (ltok !== rtok) return false;
         }
@@ -382,14 +469,14 @@ try {
         const visited = new Set();
         // Initialize our queue with the starting theorem
         const queue = [theorem];
-        
+
         // Mark the starting theorem as visited
         visited.add(theorem);
 
         while (queue.length > 0) {
             // Take the next item from the queue
             const current = queue.shift();
-            
+
             // Yield the current rewrite step
             yield current;
 
@@ -417,8 +504,8 @@ try {
                         }
                         // Construct the new theorem string after rewriting
                         const newTheorem =
-                            current.slice(0, idx) 
-                                + rewritePattern 
+                            current.slice(0, idx)
+                                + rewritePattern
                                     + current.slice(idx + matchPattern.length);
 
                         // If we have not seen this new rewrite, enqueue it for further exploration
@@ -436,8 +523,8 @@ try {
     } // rewriteGenerator(theorem, theorem_to_prove, axioms)
 
     /*
-    
-    // Example usage:    
+
+    // Example usage:
 
     // Define your axioms: each object means '{key}' -> '{value}'
     const axioms = [
@@ -467,11 +554,11 @@ try {
 
     console.log(proofSteps,'\n\n');
 
-    if(proofSteps[proofSteps.length-1] == theorem_to_prove) {    
+    if(proofSteps[proofSteps.length-1] == theorem_to_prove) {
         console.log('Q.E.D.');
     } else if (proofSteps.length > 0) {
         console.log('Partial-proof found.');
-    } else {     
+    } else {
         // If we never encountered the theorem_to_prove, no successful proof was found
         console.log('No proof found.');
     }
