@@ -1,4 +1,20 @@
 
+class currentCommitCl {
+    constructor(
+      axiomIDW = '',
+      flagPropertyNameW = '',   // e.g. 'alreadyReducedFlag' or 'alreadyExpandedFlag'
+      flagValueBool = false,
+      commitHistoryarray = []
+    ) {
+      // Create a sub-object that looks like: [axiomID]: { [flagPropertyName]: flagValue }
+      this[axiomIDW] = {
+        [flagPropertyNameW]: flagValueBool
+      };
+
+      // Attach commitHistory array
+      this.commitHistoryarray = commitHistoryarray;
+    }
+}
 
     /**
      * example
