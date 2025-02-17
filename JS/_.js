@@ -7,9 +7,6 @@ try {
     let _output = document.getElementById ('output');
     let _lineNumbers = document.getElementById ('line-numbers');
 
-    let LHS_commit_history = new Set();
-    let RHS_commit_history = new Set();
-
     function solveProblem () {
         rewriteHistoryProofFoundFlag = false;
         const { axioms, proofStatement } = parseInput (_input.value);
@@ -48,8 +45,6 @@ try {
                 return axiom;
             });
 
-        buildAllSubnetCallGraphsF (sortedAxioms);
-
         const proofStatement = sortedAxioms [sortedAxioms.length - 1];
 
         return {
@@ -57,65 +52,9 @@ try {
             proofStatement: proofStatement
         };
 
-        function buildAllSubnetCallGraphsF (unsortedAxiomsArray) {
-            const I = unsortedAxiomsArray.length;
-            const J = unsortedAxiomsArray.length - 1; // disallow root
-
-            for (let i = 0; i < I; i++) {
-                let axiom_00 = unsortedAxiomsArray [i];
-                for (let j = 0; j < J; j++) {
-                    if (i == j) continue ;
-                    let axiom_01 = unsortedAxiomsArray [j];
-                    let [ axiom_01_lhs, axiom_01_rhs ] = axiom_01.subnets;
-                    buildSubnetCallGraphF (axiom_00, j, axiom_01_lhs, 'lhs');
-                    buildSubnetCallGraphF (axiom_00, j, axiom_01_rhs, 'rhs');
-                } // end for (let j = 0; j < J; j++)
-            } // end for (let i = 0; i < I; i++)
-
-        } // end buildSubnetCallGraphs (...)
-
-        function buildSubnetCallGraphF (axiom, i, from, indirectionSZ) {
-            let [ lhs, rhs ] = axiom.subnets;
-            const ci_lhsZ = lhs._tryReplace (from, [true]);
-            const ci_rhsZ = rhs._tryReplace (from, [true]);
-            const subnetReduceFlag = Boolean(/^lhs/.test(indirectionSZ)); // reduce: lhs => rhs
-            if (ci_lhsZ && subnetReduceFlag) {
-                AddToLHSReduce (axiom, i);
-            } else if (ci_lhsZ) {
-                AddToLHSExpand (axiom, i);
-            }
-            if (ci_rhsZ && subnetReduceFlag) {
-                AddToRHSReduce (axiom, i);
-            } else if (ci_rhsZ) {
-                AddToRHSExpand (axiom, i);
-            }
-        } // end buildSubnetCallGraphF (axiom, from, to)
-
-        function AddToLHSReduce (axiom, i) {
-            (axiom._lhsReduce == undefined) && (axiom._lhsReduce = []);
-            axiom._lhsReduce.push (i);
-        } // end AddToLHSReduce
-
-        function AddToLHSExpand (axiom, i) {
-            (axiom._lhsExpand == undefined) && (axiom._lhsExpand = []);
-            axiom._lhsExpand.push (i);
-        } // end AddToLHSExpand
-
-        function AddToRHSReduce (axiom, i) {
-            (axiom._rhsReduce == undefined) && (axiom._rhsReduce = []);
-            axiom._rhsReduce.push (i);
-        } // end AddToRHSReduce
-
-        function AddToRHSExpand (axiom, i) {
-            (axiom._rhsExpand == undefined) && (axiom._rhsExpand = []);
-            axiom._rhsExpand.push (i);
-        } // end AddToRHSExpand
-
     } // end parseInput
 
-    function generateProof (axioms, proofStatement) {
-        let steps = [];
-        //let proofsteps = [];
+    function generateProof (all_axioms, proofStatement) {
         let [lhs, rhs] = proofStatement.subnets;
         const proofFound = (() => {
             class CommitEntryCl {
@@ -124,6 +63,11 @@ try {
                     this.commit = commit;
                 }
             }
+
+            // Use core axioms only //
+            let axioms = [...all_axioms];
+            axioms.pop();
+
             const w = reduceLHS(axioms);
             const x = reduceRHS(axioms);
             const y = expandLHS(axioms);
