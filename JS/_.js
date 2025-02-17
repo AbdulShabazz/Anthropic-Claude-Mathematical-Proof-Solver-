@@ -87,32 +87,28 @@ try {
             let proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
             
             // local scope to prevent naming collisions
-            {
-                const w = reduceLHS(axioms);
-                const x = reduceRHS(axioms);
-                const y = expandLHS(axioms);
-                const z = expandRHS(axioms);
+            let wVal;
+            let xVal;
+            let yVal;
+            let zVal;
 
-                do {
-                    if (proofFoundFlag) {
-                        // If a proof is found, break immediately.
-                        break;
-                    }
+            const ww = reduceLHS(axioms);
+            const xx = reduceRHS(axioms);
+            const yy = expandLHS(axioms);
+            const zz = expandRHS(axioms);
 
-                    // Advance each iterator and capture its .value
-                    const wVal = w?.next()?.value;
-                    const xVal = x?.next()?.value;
-                    const yVal = y?.next()?.value;
-                    const zVal = z?.next()?.value;
+            do {
+                if (proofFoundFlag) break;
 
-                    // If all are 0 or NaN or undefined, we should stop.
-                    if (allComplete(wVal, xVal, yVal, zVal)) {
-                        break;
-                    }
+                // Advance each iterator and capture its .value
+                wVal = ww?.next()?.value;
+                xVal = xx?.next()?.value;
+                yVal = yy?.next()?.value;
+                zVal = zz?.next()?.value;
 
-                    // Otherwise, keep looping.
-                } while (true);
-            } // end local scope
+                // If all are 0 or NaN or undefined, we should stop.
+                // Otherwise, keep looping.
+            } while (!allComplete(wVal, xVal, yVal, zVal));
 
             return proofFoundFlag;
 
