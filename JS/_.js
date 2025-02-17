@@ -15,7 +15,7 @@ try {
         const { axioms, proofStatement } = parseInput (_input.value);
         const startTime = performance.now ();
         _output.value = generateProof (axioms, proofStatement);
-        _output.value += `\n\nTotal runtime: ${performance.now () - startTime} Milliseconds`;
+        _output.value += `\n\nTotal runtime: ${ (performance.now ()-startTime).toFixed(4) } Milliseconds`;
     } // end solveProblem
 
     function parseInput (input) {
@@ -115,13 +115,13 @@ try {
 
     function generateProof (axioms, proofStatement) {
         let steps = [];
-        let proofsteps = []
+        //let proofsteps = [];
         let [lhs, rhs] = proofStatement.subnets;
         const proofFound = (() => {
             class CommitEntryCl {
-                constructor(gIDW = '', commits = []) {
+                constructor({ gIDW = '', commit = [] }={}) {
                     this.gIDW = gIDW;
-                    this.commits = commits;
+                    this.commit = commit;
                 }
             }
             const w = reduceLHS(axioms);
@@ -152,11 +152,11 @@ try {
                     + z?.next()?.value );
             return proofFoundFlag;
 
-            function* reduceLHS(_axioms) {
+            function* reduceLHS(_axioms_) {
                 if (proofFoundFlag || reduce_lhs_completed_flag || reduce_lhs_queue.length < 1)
                     return 0;
                 const _lhs_ = reduce_lhs_queue.shift();
-                for (let axiom of _axioms) {
+                for (let axiom of _axioms_) {
                     let tmp = [..._lhs_];
                     const curr_rewrite = `${_lhs_.join(' ')}`;
                     if (reduce_lhs_commit_history_map.has(curr_rewrite)
@@ -175,7 +175,7 @@ try {
                         reduce_lhs_commit_history_map
                             .set(curr_rewrite, {
                                     alreadyReducedSet:new Set(),
-                                    commitHistory:[ new CommitEntryCl({ gIDW:'root', commits:[...tmp] }) ]
+                                    commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
                                 }
                             );
                     } // end if (lhs_reduce_commit_history_map.has(curr_rewrite)
@@ -185,14 +185,14 @@ try {
                     if (rewriteFoundFlag) {
                         reduce_lhs_queue.push([...rewriteFoundFlag]);
                         const new_rewrite = rewriteFoundFlag.join(' ');
-                        const commits = [
+                        const commitHistory = [
                             ...reduce_lhs_commit_history_map.get(curr_rewrite).commitHistory,
-                            new CommitEntryCl({ gIDW:axiom.axiomID, commits:[...rewriteFoundFlag] })
+                            new CommitEntryCl({ gIDW:axiom.axiomID, commit:[...rewriteFoundFlag] })
                         ];
                         let _alreadyReducedSet_ = new Set([ ...reduce_lhs_commit_history_map.get(curr_rewrite).alreadyReducedSet, axiom.axiomID ]);
                         reduce_lhs_commit_history_map.set(new_rewrite, {
                             alreadyReducedSet:_alreadyReducedSet_,
-                            commitHistory:[new CommitEntryCl({ gIDW:axiom.axiomID, commits:commits })]
+                            commitHistory:commitHistory
                         });
                         const NoProofFoundFlag = (!reduce_rhs_commit_history_map.has(new_rewrite)
                             && !expand_rhs_commit_history_map.has(new_rewrite));
@@ -221,11 +221,11 @@ try {
                 return 0;
             } // end reduceLHS
 
-            function* reduceRHS(_axioms) {
+            function* reduceRHS(_axioms_) {
                 if (proofFoundFlag || reduce_rhs_completed_flag || reduce_rhs_queue.length < 1)
                     return 0;
-                const _rhs_ = reduce_lhs_queue.shift();
-                for (let axiom of _axioms) {
+                const _rhs_ = reduce_rhs_queue.shift();
+                for (let axiom of _axioms_) {
                     let tmp = [..._rhs_];
                     const curr_rewrite = `${_rhs_.join(' ')}`;
                     if (reduce_rhs_commit_history_map.has(curr_rewrite)
@@ -244,7 +244,7 @@ try {
                         reduce_rhs_commit_history_map
                             .set(curr_rewrite, {
                                     alreadyReducedSet:new Set(),
-                                    commitHistory:[ new CommitEntryCl({ gIDW:axiom.axiomID, commits:[...tmp] }) ]
+                                    commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
                                 }
                             );
                     } // end if (reduce_rhs_commit_history_map.has(curr_rewrite)
@@ -254,14 +254,14 @@ try {
                     if (rewriteFoundFlag) {
                         reduce_rhs_queue.push([...rewriteFoundFlag]);
                         const new_rewrite = rewriteFoundFlag.join(' ');
-                        const commits = [
+                        const commitHistory = [
                             ...reduce_rhs_commit_history_map.get(curr_rewrite).commitHistory,
-                            new CommitEntryCl({ gIDW:axiom.axiomID, commits:[...rewriteFoundFlag] })
+                            new CommitEntryCl({ gIDW:axiom.axiomID, commit:[...rewriteFoundFlag] })
                         ];
                         let _alreadyReducedSet_ = new Set([ ...reduce_rhs_commit_history_map.get(curr_rewrite).alreadyReducedSet, axiom.axiomID ]);
                         reduce_rhs_commit_history_map.set(new_rewrite, {
                             alreadyReducedSet:_alreadyReducedSet_,
-                            commitHistory:[new CommitEntryCl({ gIDW:axiom.axiomID, commits:commits })]
+                            commitHistory:commitHistory
                         });
                         const NoProofFoundFlag = (!reduce_lhs_commit_history_map.has(new_rewrite)
                             && !expand_lhs_commit_history_map.has(new_rewrite));
@@ -289,11 +289,11 @@ try {
                 return 0;
             } // end reduceRHS
 
-            function* expandLHS(_axioms) {
+            function* expandLHS(_axioms_) {
                 if (proofFoundFlag || expand_lhs_completed_flag || expand_lhs_queue.length < 1)
                     return 0;
                 const _lhs_ = expand_lhs_queue.shift();
-                for (let axiom of _axioms) {
+                for (let axiom of _axioms_) {
                     let tmp = [..._lhs_];
                     const curr_rewrite = `${_lhs_.join(' ')}`;
                     if (expand_lhs_commit_history_map.has(curr_rewrite)
@@ -312,27 +312,27 @@ try {
                         expand_lhs_commit_history_map
                             .set(curr_rewrite, {
                                 alreadyExpandedSet:new Set(),
-                                    commitHistory:[ new CommitEntryCl({ gIDW:axiom.axiomID, commits:[...tmp] }) ]
+                                    commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
                                 }
                             );
                     } // end if (expand_lhs_commit_history_map.has(curr_rewrite)
-                    const from = [...axiom.subnets[0]];
-                    const to = [...axiom.subnets[1]];
+                    const from = [...axiom.subnets[1]];
+                    const to = [...axiom.subnets[0]];
                     const rewriteFoundFlag = tmp._tryReplace(from,to);
                     if (rewriteFoundFlag) {
                         expand_lhs_queue.push([...rewriteFoundFlag]);
                         const new_rewrite = rewriteFoundFlag.join(' ');
-                        const commits = [
+                        const commitHistory = [
                             ...expand_lhs_commit_history_map.get(curr_rewrite).commitHistory,
-                            new CommitEntryCl({ gIDW:axiom.axiomID, commits:[...rewriteFoundFlag] })
+                            new CommitEntryCl({ gIDW:axiom.axiomID, commit:[...rewriteFoundFlag] })
                         ];
                         let _alreadyExpandedSet_ = new Set([ ...expand_lhs_commit_history_map.get(curr_rewrite).alreadyExpandedSet, axiom.axiomID ]);
                         expand_lhs_commit_history_map.set(new_rewrite, {
                             alreadyExpandedSet:_alreadyExpandedSet_,
-                            commitHistory:[new CommitEntryCl({ gIDW:axiom.axiomID, commits:commits })]
+                            commitHistory:commitHistory
                         });
-                        const NoProofFoundFlag = (!expand_rhs_commit_history_map.has(new_rewrite)
-                            && !reduce_rhs_commit_history_map.has(new_rewrite));
+                        const NoProofFoundFlag = (!reduce_rhs_commit_history_map.has(new_rewrite)
+                            && !expand_rhs_commit_history_map.has(new_rewrite));
                         if (NoProofFoundFlag) {
                             yield 1;
                         } else {
@@ -358,11 +358,11 @@ try {
                 return 0;
             } // end expandLHS
 
-            function* expandRHS(_axioms) {
+            function* expandRHS(_axioms_) {
                 if (proofFoundFlag || expand_rhs_completed_flag || expand_rhs_queue.length < 1)
                     return 0;
                 const _rhs_ = expand_rhs_queue.shift();
-                for (let axiom of _axioms) {
+                for (let axiom of _axioms_) {
                     let tmp = [..._rhs_];
                     const curr_rewrite = `${_rhs_.join(' ')}`;
                     if (expand_rhs_commit_history_map.has(curr_rewrite)
@@ -381,27 +381,27 @@ try {
                         expand_rhs_commit_history_map
                             .set(curr_rewrite, {
                                     alreadyExpandedSet:new Set(),
-                                    commitHistory:[ new CommitEntryCl({ gIDW:axiom.axiomID, commits:[...tmp] }) ]
+                                    commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
                                 }
                             );
                     } // end if (expand_rhs_commit_history_map.has(curr_rewrite)
-                    const from = [...axiom.subnets[0]];
-                    const to = [...axiom.subnets[1]];
+                    const from = [...axiom.subnets[1]];
+                    const to = [...axiom.subnets[0]];
                     const rewriteFoundFlag = tmp._tryReplace(from,to);
                     if (rewriteFoundFlag) {
-                        reduce_rhs_queue.push([...rewriteFoundFlag]);
+                        expand_rhs_queue.push([...rewriteFoundFlag]);
                         const new_rewrite = rewriteFoundFlag.join(' ');
-                        const commits = [
+                        const commitHistory = [
                             ...expand_rhs_commit_history_map.get(curr_rewrite).commitHistory,
-                            new CommitEntryCl({ gIDW:axiom.axiomID, commits:[...rewriteFoundFlag] })
+                            new CommitEntryCl({ gIDW:axiom.axiomID, commit:[...rewriteFoundFlag] })
                         ];
                         let _alreadyExpandedSet_ = new Set([ ...expand_rhs_commit_history_map.get(curr_rewrite).alreadyExpandedSet, axiom.axiomID ]);
                         expand_rhs_commit_history_map.set(new_rewrite, {
                             alreadyExpandedSet:_alreadyExpandedSet_,
-                            commitHistory:[new CommitEntryCl({ gIDW:axiom.axiomID, commits:commits })]
+                            commitHistory:commitHistory
                         });
-                        const NoProofFoundFlag = (!expand_rhs_commit_history_map.has(new_rewrite)
-                            && !expand_rhs_commit_history_map.has(new_rewrite));
+                        const NoProofFoundFlag = (!reduce_lhs_commit_history_map.has(new_rewrite)
+                            && !expand_lhs_commit_history_map.has(new_rewrite));
                         if (NoProofFoundFlag) {
                             yield 1;
                         } else {
@@ -426,141 +426,37 @@ try {
                 expand_rhs_completed_flag = true;
                 return 0;
             } // end expandRHS
+            
+        })(); // end proofFound inline 
 
-            /*
-            if (lhs.join (' ') == rhs.join (' '))
-                return true;
-            let ret = applyAxioms (axioms, proofStatement.guidZ, [[...lhs], [...rhs]],'reduce');
-            ret == (lhs.join (' ') == rhs.join (' '));
-            // reduce failed? Try expand!
-            !ret
-                && (proofsteps.push ([...steps]))
-                    && (steps = [])
-                        && (ret = applyAxioms (axioms, proofStatement.guidZ, [[...lhs], [...rhs]], 'expand'));
-            proofsteps.push ([...steps]);
-            return ret;
-            */
-        })();
-
-        !proofFound
-            && (result = proofsteps
-                .sort((a,b) => b.length > a.length)
-                    .shift());
-
-        return `${proofFound ? 'Proof' : 'Partial-proof'} found!\n\n${proofStatement.subnets [0].join (' ')} = ${proofStatement.subnets [1].join (' ')}, (root)\n`
-            + steps
-                .map ((step, i) => {
-                    // update proofstep
-                    const { side, result, action, axiomID } = step;
-                    const isLHS = side === 'lhs';
-                    const currentSide = isLHS ? result : lhs;
-                    const otherSide = isLHS ? rhs : result;
-
-                    // update global expression
-                    if (isLHS) {
-                        lhs = result;
-                    } else {
-                        rhs = result;
-                    }
-
-                    // return rewrite string
-                    return `${currentSide.join (' ')} = ${otherSide.join (' ')}, (${side} ${action}) via ${axiomID}`;
-                })
-                .join ('\n')
-                    + (proofFound ? '\n\nQ.E.D.' : '');
-
-        function _applyAxioms (tmpAxioms, guidZ, sides, action) {
-            sides = sides.map ((current,idx,me) => {
-                let lastGUIDZ = guidZ;
-                let changed;
-                const side = idx == 0 ? 'lhs' : 'rhs' ;
-                do {
-                    changed = applyRule (lastGUIDZ, current, tmpAxioms, action);
-                    for (let ch of changed) {
-                        steps.push ({ side, action, result: [...ch.result], axiomID: ch.axiomID, other: [] });
-                        current = ch.result;
-                        lastGUIDZ = ch.axiomRewriteID;
-                    }
-                } while (changed?.length > 0);
-                return current;
-            });
-            return (sides [0].join (' ') == sides [1].join (' '));
-        } // end applyAxioms
-
-        function applyAxioms (tmpAxioms, guidZ, sides, action) {
-            /*
-            sides = sides.map ((current,idx,me) => {
-                let lastGUIDZ = guidZ;
-                let changed;
-                const side = idx == 0 ? 'lhs' : 'rhs' ;
-                do {
-                    changed = applyRule (lastGUIDZ, current, tmpAxioms, action);
-                    for (let ch of changed) {
-                        steps.push ({ side, action, result: [...ch.result], axiomID: ch.axiomID, other: [] });
-                        current = ch.result;
-                        lastGUIDZ = ch.axiomRewriteID;
-                    }
-                } while (changed?.length > 0);
-                return current;
-            });
-            return (sides [0].join (' ') == sides [1].join (' '));
-            */
-        } // end applyAxioms
+        if (!proofFound) {
+            return `No proof found.`;
+        }
+        else {
+            const lambda_func = (u) => {
+                let W = '';
+                const _lhs_ = u[0];
+                const _rhs_ = u[1];
+                const _lhs_I = u[0].length;
+                const _rhs_I = u[1].length;
+                const x = `${ _lhs_[ (_lhs_I-1) ].commit.join(' ') }`;
+                const y = `${ _rhs_[0].commit.join(' ') }`;
+                for (let i = 0; i < _lhs_I; ++i) {
+                    const w = `${ _lhs_[i].commit.join(' ') }`;
+                    const detailsW = `, via ${ _lhs_[i].gIDW }`;
+                    W += `${ w } = ${ y }${ detailsW }\n`;
+                } // for (let i = 0; i < _lhs_I; ++i) {
+                for (let i = 1; i < _rhs_I; ++i) {
+                    const w = `${ _rhs_[i].commit.join(' ') }`;
+                    const detailsW = `, via ${ _rhs_[i].gIDW }`;
+                    W += `${ x } = ${ w }${ detailsW }\n`;
+                } // for (let i = 0; i < _rhs_I; ++i) {
+                return W; 
+            } // end lambda_func
+            return `Proof Found!\n\n${ lambda_func(proofFound) }\nQ.E.D.`;
+        } // end if (!proofFound)
 
     } // end generateProof
-
-    function applyRule (guidZ, expression, tmpAxioms, action) {
-        const axiomIDS = (() => {
-            let tmpA = [];
-            switch (action) {
-                case 'reduce':
-                    if (tmpAxioms [guidZ]?._lhsReduce) {
-                        tmpA.push (
-                            ...tmpAxioms [guidZ]?._lhsReduce
-                        );
-                    }
-                    if (tmpAxioms [guidZ]?._rhsReduce) {
-                        tmpA.push (
-                            ...tmpAxioms [guidZ]?._rhsReduce
-                        );
-                    }
-                    break;
-                case 'expand':
-                    if (tmpAxioms [guidZ]?._lhsExpand) {
-                        tmpA.push (
-                            ...tmpAxioms [guidZ]?._lhsExpand
-                        );
-                    }
-                    if (tmpAxioms [guidZ]?._rhsExpand) {
-                        tmpA.push (
-                            ...tmpAxioms [guidZ]?._rhsExpand
-                        );
-                    }
-                    break;
-            } // end switch (action)
-            return tmpA;
-        }) ();
-        let batchRewrites = [];
-        const I = axiomIDS.length;
-        for (let i = 0; i < I; i++) {
-            const uuid = axiomIDS [i];
-            if (uuid == guidZ)
-                continue;
-            const axiom = tmpAxioms [uuid];
-            const [left, right] = axiom.subnets;
-            const from = action === 'reduce' ? left : right;
-            const to = action === 'reduce' ? right : left;
-            const rewriteFound = expression._tryReplace (from, to);
-            if (rewriteFound) {
-                batchRewrites.push( {
-                    result: rewriteFound,
-                    axiomID: axiom.axiomID,
-                    axiomRewriteID: uuid,
-                });
-            }
-        } // end for (let i = 0; i < I; i++)
-        return batchRewrites;
-    } // end applyRule
 
     Object.prototype._tryReplace = function(from, to) {
         if (from.length > this.length)
@@ -615,110 +511,6 @@ try {
 
         return false;
     } // end Object.prototype._scope_satisfied
-
-    /**************************************************
-     * Term-Rewriting System with Generator Function
-     **************************************************/
-    function* rewriteGenerator(theorem, theorem_to_prove, axioms) {
-        // Track strings that we have seen already
-        const visited = new Set();
-        // Initialize our queue with the starting theorem
-        const queue = [theorem];
-
-        // Mark the starting theorem as visited
-        visited.add(theorem);
-
-        while (queue.length > 0) {
-            // Take the next item from the queue
-            const current = queue.shift();
-
-            // Yield the current rewrite step
-            yield current;
-
-            // Check if we have reached our desired theorem
-            if (current == theorem_to_prove) {
-                // Stop the generator once the target is found
-                return;
-            }
-
-            // Attempt all possible rewrites by applying every axiom
-            for (const axiom of axioms) {
-                for (const from in axiom) {
-                    const to = axiom[from];
-
-                    // Identify the placeholder pattern in the theorem text, e.g. {a} -> {b}
-                    const matchPattern = `{${from}}`;
-                    const rewritePattern = `{${to}}`;
-
-                    // For each place that "from" occurs, replace and produce a new candidate
-                    let startIndex = 0;
-                    while (true) {
-                        const idx = current.indexOf(matchPattern, startIndex);
-                        if (idx === -1) {
-                            break;
-                        }
-                        // Construct the new theorem string after rewriting
-                        const newTheorem =
-                            current.slice(0, idx)
-                                + rewritePattern
-                                    + current.slice(idx + matchPattern.length);
-
-                        // If we have not seen this new rewrite, enqueue it for further exploration
-                        if (!visited.has(newTheorem)) {
-                            visited.add(newTheorem);
-                            queue.push(newTheorem);
-                        }
-
-                        // Move past this occurrence to look for another
-                        startIndex = idx + matchPattern.length;
-                    }
-                }
-            }
-        }
-    } // rewriteGenerator(theorem, theorem_to_prove, axioms)
-
-    /*
-
-    // Example usage:
-
-    // Define your axioms: each object means '{key}' -> '{value}'
-    const axioms = [
-        { 'a': 'b' },
-        { '0': '1' },
-        { 'y': 'z' }
-    ];
-
-    // Starting theorem
-    const theorem = '{a} + {0} + {y}';
-    // Target theorem we wish to prove
-    const theorem_to_prove = '{b} + {1} + {z}';
-
-    // Instantiate the generator
-    const generator = rewriteGenerator(theorem, theorem_to_prove, axioms);
-
-    // Collect the steps in an array for inspection
-    const proofSteps = [];
-    for (const step of generator) {
-        console.log('Rewrite step:', step);
-        proofSteps.push(step);
-
-        if (step === theorem_to_prove) {
-            break;
-        }
-    }
-
-    console.log(proofSteps,'\n\n');
-
-    if(proofSteps[proofSteps.length-1] == theorem_to_prove) {
-        console.log('Q.E.D.');
-    } else if (proofSteps.length > 0) {
-        console.log('Partial-proof found.');
-    } else {
-        // If we never encountered the theorem_to_prove, no successful proof was found
-        console.log('No proof found.');
-    }
-
-    */
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
