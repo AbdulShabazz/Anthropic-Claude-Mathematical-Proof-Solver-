@@ -148,7 +148,7 @@ try {
                                 commitHistory:commitHistory
                             });
                             const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
-                                && expand_rhs_commit_history_map.has(new_rewrite));
+                                || expand_rhs_commit_history_map.has(new_rewrite));
                             if (_ProofFoundFlag_)  {
                                 // Capture the LHS commit history once.
                                 const lhsCommits = reduce_lhs_commit_history_map.get(new_rewrite).commitHistory;
@@ -203,7 +203,7 @@ try {
                                 commitHistory:commitHistory
                             });
                             const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
-                                && expand_lhs_commit_history_map.has(new_rewrite));
+                                || expand_lhs_commit_history_map.has(new_rewrite));
                             if (_ProofFoundFlag_) {
                                 // Capture the RHS commit history once.
                                 const rhsCommits = reduce_rhs_commit_history_map.get(new_rewrite).commitHistory;
@@ -258,7 +258,7 @@ try {
                                 commitHistory:commitHistory
                             });
                             const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
-                                && expand_rhs_commit_history_map.has(new_rewrite));
+                                || expand_rhs_commit_history_map.has(new_rewrite));
                             if (_ProofFoundFlag_) {
                                 // Capture the LHS commit history once.
                                 const lhsCommits = expand_lhs_commit_history_map.get(new_rewrite).commitHistory;
@@ -313,7 +313,7 @@ try {
                                 commitHistory:commitHistory
                             });
                             const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
-                                && expand_lhs_commit_history_map.has(new_rewrite));
+                                || expand_lhs_commit_history_map.has(new_rewrite));
                             if (_ProofFoundFlag_) {
                                 // Capture the RHS commit history once.
                                 const rhsCommits = expand_rhs_commit_history_map.get(new_rewrite).commitHistory;
