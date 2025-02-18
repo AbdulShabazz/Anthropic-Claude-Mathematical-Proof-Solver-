@@ -147,11 +147,9 @@ try {
                                 alreadyReducedSet:_alreadyReducedSet_,
                                 commitHistory:commitHistory
                             });
-                            const NoProofFoundFlag = (!reduce_rhs_commit_history_map.has(new_rewrite)
-                                && !expand_rhs_commit_history_map.has(new_rewrite));
-                            if (NoProofFoundFlag) {
-                                ;;
-                            } else {
+                            const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
+                                && expand_rhs_commit_history_map.has(new_rewrite));
+                            if (_ProofFoundFlag_)  {
                                 // Capture the LHS commit history once.
                                 const lhsCommits = reduce_lhs_commit_history_map.get(new_rewrite).commitHistory;
 
@@ -166,7 +164,7 @@ try {
                                     [...rhsMap.get(new_rewrite).commitHistory]
                                 ];
                                 
-                            } // end if (NoProofFoundFlag)
+                            } // end if (_ProofFoundFlag_)
                             yield 1;
                         } // end if (rewriteFoundFlag)
                     } // end for (let axiom of _axioms)
@@ -204,11 +202,9 @@ try {
                                 alreadyReducedSet:_alreadyReducedSet_,
                                 commitHistory:commitHistory
                             });
-                            const NoProofFoundFlag = (!reduce_lhs_commit_history_map.has(new_rewrite)
-                                && !expand_lhs_commit_history_map.has(new_rewrite));
-                            if (NoProofFoundFlag) {
-                                ;;
-                            } else {
+                            const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
+                                && expand_lhs_commit_history_map.has(new_rewrite));
+                            if (_ProofFoundFlag_) {
                                 // Capture the RHS commit history once.
                                 const rhsCommits = reduce_rhs_commit_history_map.get(new_rewrite).commitHistory;
 
@@ -223,7 +219,7 @@ try {
                                     [...rhsCommits]
                                 ];
                                 
-                            } // end if (NoProofFoundFlag)
+                            } // end if (_ProofFoundFlag_)
                             yield 1;
                         } // end if (rewriteFoundFlag)
                     } // end for (let axiom of _axioms)
@@ -261,11 +257,9 @@ try {
                                 alreadyExpandedSet:_alreadyExpandedSet_,
                                 commitHistory:commitHistory
                             });
-                            const NoProofFoundFlag = (!reduce_rhs_commit_history_map.has(new_rewrite)
-                                && !expand_rhs_commit_history_map.has(new_rewrite));
-                            if (NoProofFoundFlag) {
-                                ;;
-                            } else {
+                            const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
+                                && expand_rhs_commit_history_map.has(new_rewrite));
+                            if (_ProofFoundFlag_) {
                                 // Capture the LHS commit history once.
                                 const lhsCommits = expand_lhs_commit_history_map.get(new_rewrite).commitHistory;
 
@@ -280,7 +274,7 @@ try {
                                     [...rhsMap.get(new_rewrite).commitHistory]
                                 ];
                                 
-                            } // end if (NoProofFoundFlag)
+                            } // end if (_ProofFoundFlag_)
                             yield 1;
                         } // end if (rewriteFoundFlag)
                     } // end for (let axiom of _axioms)
@@ -318,11 +312,9 @@ try {
                                 alreadyExpandedSet:_alreadyExpandedSet_,
                                 commitHistory:commitHistory
                             });
-                            const NoProofFoundFlag = (!reduce_lhs_commit_history_map.has(new_rewrite)
-                                && !expand_lhs_commit_history_map.has(new_rewrite));
-                            if (NoProofFoundFlag) {
-                                ;;
-                            } else {
+                            const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
+                                && expand_lhs_commit_history_map.has(new_rewrite));
+                            if (_ProofFoundFlag_) {
                                 // Capture the RHS commit history once.
                                 const rhsCommits = expand_rhs_commit_history_map.get(new_rewrite).commitHistory;
 
@@ -337,7 +329,7 @@ try {
                                     [...rhsCommits]
                                 ];
                                 
-                            } // end if (NoProofFoundFlag)
+                            } // end if (_ProofFoundFlag_)
                             yield 1; 
                         } // end if (rewriteFoundFlag)
                     } // end for (let axiom of _axioms)
