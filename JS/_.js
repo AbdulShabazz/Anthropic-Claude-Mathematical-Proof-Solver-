@@ -140,7 +140,7 @@ try {
                             const new_rewrite = rewriteFoundFlag.join(' ');
                             const commitHistory = [
                                 ...reduce_lhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:axiom.axiomID, commit:[...rewriteFoundFlag] })
+                                new CommitEntryCl({ gIDW:`lhs reduce via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
                             ];
                             let _alreadyReducedSet_ = new Set([ ...reduce_lhs_commit_history_map.get(curr_rewrite).alreadyReducedSet, axiom.axiomID ]);
                             reduce_lhs_commit_history_map.set(new_rewrite, {
@@ -195,7 +195,7 @@ try {
                             const new_rewrite = rewriteFoundFlag.join(' ');
                             const commitHistory = [
                                 ...reduce_rhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:axiom.axiomID, commit:[...rewriteFoundFlag] })
+                                new CommitEntryCl({ gIDW:`rhs reduce via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
                             ];
                             let _alreadyReducedSet_ = new Set([ ...reduce_rhs_commit_history_map.get(curr_rewrite).alreadyReducedSet, axiom.axiomID ]);
                             reduce_rhs_commit_history_map.set(new_rewrite, {
@@ -250,7 +250,7 @@ try {
                             const new_rewrite = rewriteFoundFlag.join(' ');
                             const commitHistory = [
                                 ...expand_lhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:axiom.axiomID, commit:[...rewriteFoundFlag] })
+                                new CommitEntryCl({ gIDW:`lhs expand via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
                             ];
                             let _alreadyExpandedSet_ = new Set([ ...expand_lhs_commit_history_map.get(curr_rewrite).alreadyExpandedSet, axiom.axiomID ]);
                             expand_lhs_commit_history_map.set(new_rewrite, {
@@ -305,7 +305,7 @@ try {
                             const new_rewrite = rewriteFoundFlag.join(' ');
                             const commitHistory = [
                                 ...expand_rhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:axiom.axiomID, commit:[...rewriteFoundFlag] })
+                                new CommitEntryCl({ gIDW:`rhs expand via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
                             ];
                             let _alreadyExpandedSet_ = new Set([ ...expand_rhs_commit_history_map.get(curr_rewrite).alreadyExpandedSet, axiom.axiomID ]);
                             expand_rhs_commit_history_map.set(new_rewrite, {
@@ -352,14 +352,14 @@ try {
                 const y = `${ _rhs_[0].commit.join(' ') }`;
                 for (let i = 0; i < _lhs_I; ++i) {
                     const w = `${ _lhs_[i].commit.join(' ') }`;
-                    const detailsW = `, via ${ _lhs_[i].gIDW }`;
+                    const detailsW = `, ${ _lhs_[i].gIDW }`;
                     W += `${ w } = ${ y }${ detailsW }\n`;
-                } // for (let i = 0; i < _lhs_I; ++i) {
+                } // end for (let i = 0; i < _lhs_I; ++i) {
                 for (let i = 1; i < _rhs_I; ++i) {
                     const w = `${ _rhs_[i].commit.join(' ') }`;
-                    const detailsW = `, via ${ _rhs_[i].gIDW }`;
+                    const detailsW = `, ${ _rhs_[i].gIDW }`;
                     W += `${ x } = ${ w }${ detailsW }\n`;
-                } // for (let i = 0; i < _rhs_I; ++i) {
+                } // end for (let i = 0; i < _rhs_I; ++i) {
                 return W; 
             } // end lambda_func
             return `Proof Found!\n\n${ lambda_func(proofFound) }\nQ.E.D.`;
