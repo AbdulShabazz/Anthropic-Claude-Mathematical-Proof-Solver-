@@ -72,10 +72,6 @@ try {
             const x = reduceRHS(axioms);
             const y = expandLHS(axioms);
             const z = expandRHS(axioms);
-            let reduce_lhs_completed_flag = false;
-            let reduce_rhs_completed_flag = false;
-            let expand_lhs_completed_flag = false;
-            let expand_rhs_completed_flag = false;
             let reduce_lhs_queue = [[...lhs]];
             let reduce_rhs_queue = [[...rhs]];
             let expand_lhs_queue = [[...lhs]];
@@ -127,27 +123,15 @@ try {
                     const _lhs_ = reduce_lhs_queue.shift();
                     for (let axiom of _axioms_) {
                         let tmp = [..._lhs_];
-                        const curr_rewrite = `${_lhs_.join(' ')}`;
-                        if (reduce_lhs_commit_history_map.has(curr_rewrite)
-                                && reduce_lhs_commit_history_map
-                                    .get(curr_rewrite)
-                                    .alreadyReducedSet
-                                    .has(axiom.axiomID))
-                            continue;
-                        else if (reduce_lhs_commit_history_map.has(curr_rewrite)) {
-                            reduce_lhs_commit_history_map
-                                .get(curr_rewrite)
-                                .alreadyReducedSet
-                                .add(axiom.axiomID);
-                        }
-                        else {
+                        const curr_rewrite = `${_lhs_.join(' ')}`;                     
+                        if (!reduce_lhs_commit_history_map.has(curr_rewrite)) {
                             reduce_lhs_commit_history_map
                                 .set(curr_rewrite, {
                                         alreadyReducedSet:new Set(),
                                         commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
                                     }
                                 );
-                        } // end if (lhs_reduce_commit_history_map.has(curr_rewrite)
+                        }
                         const from = [...axiom.subnets[0]];
                         const to = [...axiom.subnets[1]];
                         const rewriteFoundFlag = tmp._tryReplace(from,to);
@@ -166,7 +150,7 @@ try {
                             const NoProofFoundFlag = (!reduce_rhs_commit_history_map.has(new_rewrite)
                                 && !expand_rhs_commit_history_map.has(new_rewrite));
                             if (NoProofFoundFlag) {
-                                yield 1;
+                                ;;
                             } else {
                                 // Capture the LHS commit history once.
                                 const lhsCommits = reduce_lhs_commit_history_map.get(new_rewrite).commitHistory;
@@ -181,12 +165,11 @@ try {
                                     [...lhsCommits],
                                     [...rhsMap.get(new_rewrite).commitHistory]
                                 ];
-
-                                return 0;
+                                
                             } // end if (NoProofFoundFlag)
+                            yield 1;
                         } // end if (rewriteFoundFlag)
                     } // end for (let axiom of _axioms)
-                    yield 1;
                 } // end while (1)
             } // end reduceLHS
 
@@ -198,26 +181,14 @@ try {
                     for (let axiom of _axioms_) {
                         let tmp = [..._rhs_];
                         const curr_rewrite = `${_rhs_.join(' ')}`;
-                        if (reduce_rhs_commit_history_map.has(curr_rewrite)
-                                && reduce_rhs_commit_history_map
-                                    .get(curr_rewrite)
-                                    .alreadyReducedSet
-                                    .has(axiom.axiomID))
-                            continue;
-                        else if (reduce_rhs_commit_history_map.has(curr_rewrite)) {
-                            reduce_rhs_commit_history_map
-                                .get(curr_rewrite)
-                                .alreadyReducedSet
-                                .add(axiom.axiomID);
-                        }
-                        else {
+                        if (!reduce_rhs_commit_history_map.has(curr_rewrite)) {
                             reduce_rhs_commit_history_map
                                 .set(curr_rewrite, {
                                         alreadyReducedSet:new Set(),
                                         commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
                                     }
                                 );
-                        } // end if (reduce_rhs_commit_history_map.has(curr_rewrite)
+                        }
                         const from = [...axiom.subnets[0]];
                         const to = [...axiom.subnets[1]];
                         const rewriteFoundFlag = tmp._tryReplace(from,to);
@@ -236,7 +207,7 @@ try {
                             const NoProofFoundFlag = (!reduce_lhs_commit_history_map.has(new_rewrite)
                                 && !expand_lhs_commit_history_map.has(new_rewrite));
                             if (NoProofFoundFlag) {
-                                yield 1;
+                                ;;
                             } else {
                                 // Capture the RHS commit history once.
                                 const rhsCommits = reduce_rhs_commit_history_map.get(new_rewrite).commitHistory;
@@ -251,12 +222,12 @@ try {
                                     [...lhsMap.get(new_rewrite).commitHistory],
                                     [...rhsCommits]
                                 ];
-                                return 0;
+                                
                             } // end if (NoProofFoundFlag)
+                            yield 1;
                         } // end if (rewriteFoundFlag)
                     } // end for (let axiom of _axioms)
-                    yield 1;
-                } // end 2while (1)
+                } // end while (1)
             } // end reduceRHS
 
             function* expandLHS(_axioms_) {
@@ -267,26 +238,14 @@ try {
                     for (let axiom of _axioms_) {
                         let tmp = [..._lhs_];
                         const curr_rewrite = `${_lhs_.join(' ')}`;
-                        if (expand_lhs_commit_history_map.has(curr_rewrite)
-                                && expand_lhs_commit_history_map
-                                    .get(curr_rewrite)
-                                    .alreadyExpandedSet
-                                    .has(axiom.axiomID))
-                            continue;
-                        else if (expand_lhs_commit_history_map.has(curr_rewrite)) {
-                            expand_lhs_commit_history_map
-                                .get(curr_rewrite)
-                                .alreadyExpandedSet
-                                .add(axiom.axiomID);
-                        }
-                        else {
+                        if (!expand_lhs_commit_history_map.has(curr_rewrite)) {
                             expand_lhs_commit_history_map
                                 .set(curr_rewrite, {
                                     alreadyExpandedSet:new Set(),
                                         commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
                                     }
                                 );
-                        } // end if (expand_lhs_commit_history_map.has(curr_rewrite)
+                        }
                         const from = [...axiom.subnets[1]];
                         const to = [...axiom.subnets[0]];
                         const rewriteFoundFlag = tmp._tryReplace(from,to);
@@ -305,7 +264,7 @@ try {
                             const NoProofFoundFlag = (!reduce_rhs_commit_history_map.has(new_rewrite)
                                 && !expand_rhs_commit_history_map.has(new_rewrite));
                             if (NoProofFoundFlag) {
-                                yield 1;
+                                ;;
                             } else {
                                 // Capture the LHS commit history once.
                                 const lhsCommits = expand_lhs_commit_history_map.get(new_rewrite).commitHistory;
@@ -320,12 +279,11 @@ try {
                                     [...lhsCommits],
                                     [...rhsMap.get(new_rewrite).commitHistory]
                                 ];
-
-                                return 0;
+                                
                             } // end if (NoProofFoundFlag)
+                            yield 1;
                         } // end if (rewriteFoundFlag)
                     } // end for (let axiom of _axioms)
-                    yield 1;
                 } // end while (1)
             } // end expandLHS
 
@@ -337,26 +295,14 @@ try {
                     for (let axiom of _axioms_) {
                         let tmp = [..._rhs_];
                         const curr_rewrite = `${_rhs_.join(' ')}`;
-                        if (expand_rhs_commit_history_map.has(curr_rewrite)
-                                && expand_rhs_commit_history_map
-                                    .get(curr_rewrite)
-                                    .alreadyExpandedSet
-                                    .has(axiom.axiomID))
-                            continue;
-                        else if (expand_rhs_commit_history_map.has(curr_rewrite)) {
-                            expand_rhs_commit_history_map
-                                .get(curr_rewrite)
-                                .alreadyExpandedSet
-                                .add(axiom.axiomID);
-                        }
-                        else {
+                        if (!expand_rhs_commit_history_map.has(curr_rewrite)) {
                             expand_rhs_commit_history_map
                                 .set(curr_rewrite, {
                                         alreadyExpandedSet:new Set(),
                                         commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
                                     }
                                 );
-                        } // end if (expand_rhs_commit_history_map.has(curr_rewrite)
+                        }
                         const from = [...axiom.subnets[1]];
                         const to = [...axiom.subnets[0]];
                         const rewriteFoundFlag = tmp._tryReplace(from,to);
@@ -375,7 +321,7 @@ try {
                             const NoProofFoundFlag = (!reduce_lhs_commit_history_map.has(new_rewrite)
                                 && !expand_lhs_commit_history_map.has(new_rewrite));
                             if (NoProofFoundFlag) {
-                                yield 1;
+                                ;;
                             } else {
                                 // Capture the RHS commit history once.
                                 const rhsCommits = expand_rhs_commit_history_map.get(new_rewrite).commitHistory;
@@ -390,12 +336,11 @@ try {
                                     [...lhsMap.get(new_rewrite).commitHistory],
                                     [...rhsCommits]
                                 ];
-
-                                return 0;
+                                
                             } // end if (NoProofFoundFlag)
+                            yield 1; 
                         } // end if (rewriteFoundFlag)
                     } // end for (let axiom of _axioms)
-                    yield 1;
                 } // end whiile (1)
             } // end expandRHS
             
@@ -429,39 +374,58 @@ try {
         } // end if (!proofFound)
 
     } // end generateProof
-
+     
     Object.prototype._tryReplace = function(from, to) {
         if (from.length > this.length)
-            return false;
-
+          return false;
+      
+        class keyCL {
+          constructor({ series=0, tok='' }={}) {
+            this.series = series;
+            this.tok = tok;
+          }
+        } // end class
+        
         let i = 0;
+        let series = 1;
+        let replaceSeriesSet = new Set();
         const I = from.length;
         const J = this.length;
         const rewriteSZArray = [];
         let rewriteFoundFlag = false;
-        const boundScopeSatisfied = (tok,j,i) =>
-            this._scope_satisfied(tok, this, j, from, i);
-
-        let resp;
-        for (let j = 0; j < J; j++) {
-            const tok = this [j];
-            if (resp = boundScopeSatisfied (tok, j, i)) {
-                i += resp.j - j;
-                j = resp.j;
-                if (++i === I) {
+      
+        for (let j = 0; j < J; ++j) {
+            let _series_ = 0;    
+            const tok = this[j];
+            if (from[i] == tok) {
+                _series_ = series;
+                if (++i == I) {
                     i = 0;
-                    rewriteSZArray.push (...to);
                     rewriteFoundFlag = true;
-                    continue;
-                }
-            } else {
-                rewriteSZArray.push (tok);
-            }
+                    replaceSeriesSet.add(series++);
+                } // end if (++i == I)
+            } // end if (from[i] == tok)
+            rewriteSZArray.push(new keyCL({ series:_series_, tok:tok }) );
         }
-
-        return rewriteFoundFlag
-            ? rewriteSZArray
-            : false;
+        
+        let ret = false;
+        if (rewriteFoundFlag) {
+          ret = [];
+          let lastSeries = 0;
+          for (let o of rewriteSZArray) {
+            if (replaceSeriesSet.has (o.series)) {
+              if (o.series != lastSeries){
+                lastSeries = o.series;
+                ret.push(...to);
+              }
+            }
+            else {
+              ret.push (o.tok);
+            }
+          }    
+        }
+        
+        return ret;
     } // end Object.prototype._tryReplace
 
     Object.prototype._scope_satisfied = function(tok, lhs, l, rhs, r) {
