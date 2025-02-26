@@ -54,6 +54,66 @@ try {
 
     } // end parseInput
 
+    let axiomSubnetMap = new Map ();
+
+    function subnetFoundF (obj) {
+        return obj._axiom_._tryReplace(obj.from, obj.to);
+    }
+
+    function generateSubnets (all_axioms) {
+        for (let _axiom_1_ of all_axioms) {            
+            for (let _axiom_2_ of all_axioms) {
+                let _lhs_ = _axiom_1_.subnets[0];
+                let _rhs_ = _axiom_1_.subnets[1];
+                if (_axiom_1_.axiomID != _axiom_2_.axiomID) {
+                    !axiomSubnets.has(_axiom_1_.axiomID) 
+                        && axiomSubnets.set(_axiom_1_.axiomID, { 
+                            hasLHSReduceSubnetFlag: new Map(),
+                            hasRHSReduceSubnetFlag: new Map(),
+                            hasLHSExpandSubnetFlag: new Map(),
+                            hasRHSExpandSubnetFlag: new Map(),
+                         });
+                    if (subnetFoundF ({ 
+                        _axiom_:_axiom_1_.subnets[0],                         
+                        from:_axiom_2_.subnets[0], 
+                        to:_axiom_2_.subnets[1] })) {
+                        axiomSubnets
+                            .get(_axiom_1_.axiomID)
+                            .hasLHSReduceSubnetFlag
+                            .set(_axiom_2_.axiomID, true);
+                    } // end if subnetFoundF
+                    if (subnetFoundF ({ 
+                        _axiom_:_axiom_1_.subnets[1],                         
+                        from:_axiom_2_.subnets[0], 
+                        to:_axiom_2_.subnets[1] })) {
+                        axiomSubnets
+                            .get(_axiom_1_.axiomID)
+                            .hasRHSReduceSubnetFlag
+                            .set(_axiom_2_.axiomID, true);
+                    } // end if subnetFoundF
+                    if (subnetFoundF ({ 
+                        _axiom_:_axiom_1_.subnets[0],                         
+                        from:_axiom_2_.subnets[1], 
+                        to:_axiom_2_.subnets[0] })) {
+                        axiomSubnets
+                            .get(_axiom_1_.axiomID)
+                            .hasLHSExpandSubnetFlag
+                            .set(_axiom_2_.axiomID, true);
+                    } // end if subnetFoundF
+                    if (subnetFoundF ({ 
+                        _axiom_:_axiom_1_.subnets[1],                         
+                        from:_axiom_2_.subnets[1], 
+                        to:_axiom_2_.subnets[0] })) {
+                        axiomSubnets
+                            .get(_axiom_1_.axiomID)
+                            .hasRHSExpandSubnetFlag
+                            .set(_axiom_2_.axiomID, true);
+                    } // end if subnetFoundF
+                } // end if_axiom_1_.axiomID != _axiom_2_.axiomID
+            } // loop 2
+        } // end loop 1
+    } // end generateSubnets
+
     function generateProof (all_axioms, proofStatement) {
         let [lhs, rhs] = proofStatement.subnets;
         const proofFound = (() => {
