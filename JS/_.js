@@ -10,6 +10,7 @@ try {
     function solveProblem () {
         rewriteHistoryProofFoundFlag = false;
         const { axioms, proofStatement } = parseInput (_input.value);
+        generateSubnetPrefetchSearch (axioms);
         const startTime = performance.now ();
         _output.value = generateProof (axioms, proofStatement);
         _output.value += `\n\nTotal runtime: ${ (performance.now ()-startTime).toFixed(4) } Milliseconds`;
@@ -60,7 +61,7 @@ try {
         return obj._axiom_._tryReplace(obj.from, obj.to);
     }
 
-    function generateSubnets (all_axioms) {
+    function generateSubnetPrefetchSearch (all_axioms) {
         for (let _axiom_1_ of all_axioms) {            
             for (let _axiom_2_ of all_axioms) {
                 let _lhs_ = _axiom_1_.subnets[0];
