@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 1ms (test case 246) */
+    /** Benchmark 43ms (test case 246) */
 
     let axiomSubnetsMap = new Map ();
     let _input = document.getElementById ('input');
