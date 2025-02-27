@@ -3,6 +3,7 @@ try {
 
     /** Benchmark 1ms (test case 246) */
 
+    let axiomSubnetsMap = new Map ();
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
     let _lineNumbers = document.getElementById ('line-numbers');
@@ -55,8 +56,6 @@ try {
 
     } // end parseInput
 
-    let axiomSubnetMap = new Map ();
-
     function subnetFoundF (obj) {
         return obj._axiom_._tryReplace(obj.from, obj.to);
     }
@@ -67,8 +66,8 @@ try {
                 let _lhs_ = _axiom_1_.subnets[0];
                 let _rhs_ = _axiom_1_.subnets[1];
                 if (_axiom_1_.axiomID != _axiom_2_.axiomID) {
-                    !axiomSubnets.has(_axiom_1_.axiomID) 
-                        && axiomSubnets.set(_axiom_1_.axiomID, { 
+                    !axiomSubnetsMap.has(_axiom_1_.axiomID) 
+                        && axiomSubnetsMap.set(_axiom_1_.axiomID, { 
                             hasLHSReduceSubnetFlag: new Map(),
                             hasRHSReduceSubnetFlag: new Map(),
                             hasLHSExpandSubnetFlag: new Map(),
@@ -78,7 +77,7 @@ try {
                         _axiom_:_axiom_1_.subnets[0],                         
                         from:_axiom_2_.subnets[0], 
                         to:_axiom_2_.subnets[1] })) {
-                        axiomSubnets
+                        axiomSubnetsMap
                             .get(_axiom_1_.axiomID)
                             .hasLHSReduceSubnetFlag
                             .set(_axiom_2_.axiomID, true);
@@ -87,7 +86,7 @@ try {
                         _axiom_:_axiom_1_.subnets[1],                         
                         from:_axiom_2_.subnets[0], 
                         to:_axiom_2_.subnets[1] })) {
-                        axiomSubnets
+                        axiomSubnetsMap
                             .get(_axiom_1_.axiomID)
                             .hasRHSReduceSubnetFlag
                             .set(_axiom_2_.axiomID, true);
@@ -96,7 +95,7 @@ try {
                         _axiom_:_axiom_1_.subnets[0],                         
                         from:_axiom_2_.subnets[1], 
                         to:_axiom_2_.subnets[0] })) {
-                        axiomSubnets
+                        axiomSubnetsMap
                             .get(_axiom_1_.axiomID)
                             .hasLHSExpandSubnetFlag
                             .set(_axiom_2_.axiomID, true);
@@ -105,7 +104,7 @@ try {
                         _axiom_:_axiom_1_.subnets[1],                         
                         from:_axiom_2_.subnets[1], 
                         to:_axiom_2_.subnets[0] })) {
-                        axiomSubnets
+                        axiomSubnetsMap
                             .get(_axiom_1_.axiomID)
                             .hasRHSExpandSubnetFlag
                             .set(_axiom_2_.axiomID, true);
@@ -177,7 +176,8 @@ try {
                 return true;
             } // end allComplete
 
-            function* reduceLHS(_axioms_) {
+            function* reduceLHS(__axioms__) {
+                let _axioms_ = [...__axioms__];
                 while (1) {
                     if (proofFoundFlag || reduce_lhs_queue.length < 1)
                         return 0;
@@ -197,6 +197,7 @@ try {
                         const to = [...axiom.subnets[1]];
                         const rewriteFoundFlag = tmp._tryReplace(from,to);
                         if (rewriteFoundFlag) {
+                            _axioms_.sort((a,b) => axiomSubnetsMap.get(axiom.axiomID).hasLHSReduceSubnetFlag.has(a.axiomID));
                             reduce_lhs_queue.push([...rewriteFoundFlag]);
                             const new_rewrite = rewriteFoundFlag.join(' ');
                             const commitHistory = [
@@ -232,7 +233,8 @@ try {
                 } // end while (1)
             } // end reduceLHS
 
-            function* reduceRHS(_axioms_) {
+            function* reduceRHS(__axioms__) {
+                let _axioms_ = [...__axioms__];
                 while (1) {
                     if (proofFoundFlag || reduce_rhs_queue.length < 1)
                         return 0;
@@ -252,6 +254,7 @@ try {
                         const to = [...axiom.subnets[1]];
                         const rewriteFoundFlag = tmp._tryReplace(from,to);
                         if (rewriteFoundFlag) {
+                            _axioms_.sort((a,b) => axiomSubnetsMap.get(axiom.axiomID).hasRHSReduceSubnetFlag.has(a.axiomID));
                             reduce_rhs_queue.push([...rewriteFoundFlag]);
                             const new_rewrite = rewriteFoundFlag.join(' ');
                             const commitHistory = [
@@ -287,7 +290,8 @@ try {
                 } // end while (1)
             } // end reduceRHS
 
-            function* expandLHS(_axioms_) {
+            function* expandLHS(__axioms__) {
+                let _axioms_ = [...__axioms__];
                 while (1) {
                     if (proofFoundFlag || expand_lhs_queue.length < 1)
                         return 0;
@@ -306,7 +310,8 @@ try {
                         const from = [...axiom.subnets[1]];
                         const to = [...axiom.subnets[0]];
                         const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
+                        if (rewriteFoundFlag) {                            
+                            _axioms_.sort((a,b) => axiomSubnetsMap.get(axiom.axiomID).hasLHSExpandSubnetFlag.has(a.axiomID));
                             expand_lhs_queue.push([...rewriteFoundFlag]);
                             const new_rewrite = rewriteFoundFlag.join(' ');
                             const commitHistory = [
@@ -342,7 +347,8 @@ try {
                 } // end while (1)
             } // end expandLHS
 
-            function* expandRHS(_axioms_) {
+            function* expandRHS(__axioms__) {
+                let _axioms_ = [...__axioms__];
                 while (1) {
                     if (proofFoundFlag || expand_rhs_queue.length < 1)
                         return 0;
@@ -361,7 +367,8 @@ try {
                         const from = [...axiom.subnets[1]];
                         const to = [...axiom.subnets[0]];
                         const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
+                        if (rewriteFoundFlag) {                            
+                            _axioms_.sort((a,b) => axiomSubnetsMap.get(axiom.axiomID).hasRHSExpandSubnetFlag.has(a.axiomID));
                             expand_rhs_queue.push([...rewriteFoundFlag]);
                             const new_rewrite = rewriteFoundFlag.join(' ');
                             const commitHistory = [
