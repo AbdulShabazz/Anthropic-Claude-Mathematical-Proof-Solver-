@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 1ms (test case 246) */
+    /** Benchmark 32ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
