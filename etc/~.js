@@ -1,4 +1,9 @@
 
+const w = reduceLHS(axioms);
+const x = reduceRHS(axioms);
+const y = expandLHS(axioms);
+const z = expandRHS(axioms);
+
 let steps = [];
 
         //let proofsteps = [];
