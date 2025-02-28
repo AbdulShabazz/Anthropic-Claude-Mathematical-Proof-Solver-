@@ -1,5 +1,31 @@
 
             /*
+            // local scope to prevent naming collisions
+            let uVal;
+            
+            const uu = rewriteQueue(axioms);
+
+            do {
+                if (proofFoundFlag)
+                    break;
+
+                // Advance each iterator and capture its .value
+                uVal = uu?.next()?.value;
+
+                // If all are 0 or NaN or undefined, we should stop.
+                // Otherwise, keep looping.
+            } while (!allComplete(uVal));
+            */
+            /*
+            function allComplete(...vals) {
+                for (let val of vals) {
+                    if (val == 1)
+                        return false;
+                }
+                return true;
+            } // end allComplete
+            */
+            /*
             let wVal;
             let xVal;
             let yVal;

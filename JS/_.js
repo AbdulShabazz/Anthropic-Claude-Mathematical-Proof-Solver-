@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 40ms (test case 246) */
+    /** Benchmark 35ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -78,33 +78,11 @@ try {
             let expand_rhs_commit_history_map = new Map();
             let proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
 
-            // local scope to prevent naming collisions
-            let uVal;
-
-            const uu = rewriteQueue(axioms);
-
-            do {
-                if (proofFoundFlag) break;
-
-                // Advance each iterator and capture its .value
-                uVal = uu?.next()?.value;
-
-                // If all are 0 or NaN or undefined, we should stop.
-                // Otherwise, keep looping.
-            //} while (!allComplete(wVal, xVal, yVal, zVal));
-            } while (!allComplete(uVal));
+            rewriteQueue(axioms);
 
             return proofFoundFlag;
-
-            function allComplete(...vals) {
-                for (let val of vals) {
-                    if (val == 1)
-                        return false;
-                }
-                return true;
-            } // end allComplete
-
-            function* rewriteQueue(_axioms_) {
+            
+            function rewriteQueue(_axioms_) {
                 while (1) {
                     const AllQueuesEmptyFlag =
                         (
@@ -135,7 +113,6 @@ try {
                             const to = [...axiom.subnets[1]];
                             const rewriteFoundFlag = tmp._tryReplace(from,to);
                             if (rewriteFoundFlag) {
-                                //rewriteFoundFlag_reduce_lhs = true;
                                 reduce_lhs_queue.push([...rewriteFoundFlag]);
                                 const new_rewrite = rewriteFoundFlag.join(' ');
                                 const commitHistory = [
@@ -162,10 +139,9 @@ try {
                                     proofFoundFlag = [
                                         [...lhsCommits],
                                         [...rhsMap.get(new_rewrite).commitHistory]
-                                    ];
-    
+                                    ];        
+                                    return 1;
                                 } // end if (_ProofFoundFlag_)
-                                yield 1;
                             } // end if rewriteFoundFlag
                         } // end if _reduce_lhs_
                         if (_reduce_rhs_) {
@@ -183,7 +159,6 @@ try {
                             const to = [...axiom.subnets[1]];
                             const rewriteFoundFlag = tmp._tryReplace(from,to);
                             if (rewriteFoundFlag) {
-                                //rewriteFoundFlag_reduce_rhs = true;
                                 reduce_rhs_queue.push([...rewriteFoundFlag]);
                                 const new_rewrite = rewriteFoundFlag.join(' ');
                                 const commitHistory = [
@@ -210,10 +185,9 @@ try {
                                     proofFoundFlag = [
                                         [...lhsMap.get(new_rewrite).commitHistory],
                                         [...rhsCommits]
-                                    ];
-    
+                                    ];        
+                                    return 1;
                                 } // end if (_ProofFoundFlag_)
-                                yield 1;
                             } // end if rewriteFoundFlag
                         } // end if _reduce_rhs_
                         if (_expand_lhs_) {
@@ -231,7 +205,6 @@ try {
                             const to = [...axiom.subnets[0]];
                             const rewriteFoundFlag = tmp._tryReplace(from,to);
                             if (rewriteFoundFlag) {
-                                //rewriteFoundFlag_expand_lhs = true;
                                 expand_lhs_queue.push([...rewriteFoundFlag]);
                                 const new_rewrite = rewriteFoundFlag.join(' ');
                                 const commitHistory = [
@@ -258,10 +231,9 @@ try {
                                     proofFoundFlag = [
                                         [...lhsCommits],
                                         [...rhsMap.get(new_rewrite).commitHistory]
-                                    ];
-    
+                                    ];    
+                                    return 1;
                                 } // end if (_ProofFoundFlag_)
-                                yield 1;
                             } // end if rewriteFoundFlag
                         } // end if _expand_lhs_
                         if (_expand_rhs_) {
@@ -279,7 +251,6 @@ try {
                             const to = [...axiom.subnets[0]];
                             const rewriteFoundFlag = tmp._tryReplace(from,to);
                             if (rewriteFoundFlag) {
-                                //rewriteFoundFlag_expand_rhs = true;
                                 expand_rhs_queue.push([...rewriteFoundFlag]);
                                 const new_rewrite = rewriteFoundFlag.join(' ');
                                 const commitHistory = [
@@ -306,10 +277,9 @@ try {
                                     proofFoundFlag = [
                                         [...lhsMap.get(new_rewrite).commitHistory],
                                         [...rhsCommits]
-                                    ];
-    
+                                    ];    
+                                    return 1;
                                 } // end if (_ProofFoundFlag_)
-                                yield 1;
                             } // end if rewriteFoundFlag
                         } // end if _expand_rhs_
                     } // end for (let axiom of _axioms_) 
