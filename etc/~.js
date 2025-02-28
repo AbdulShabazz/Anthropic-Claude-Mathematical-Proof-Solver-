@@ -1,4 +1,25 @@
 
+
+Object.prototype._scope_satisfied = function(tok, lhs, l, rhs, r) {
+    if (lhs[l] !== rhs[r]) return false;
+
+    const endScope = { "(": ")", "{": "}" };
+    if (!(tok in endScope)) return { j : l };
+    const endToken = endScope[tok];
+    const I = rhs.length;
+    const J = lhs.length;
+
+    for (let i = 1; (r + i < I) && (l + i < J); i++) {
+        const ltok = lhs[l + i];
+        const rtok = rhs[r + i];
+
+        if (rtok === endToken) return { j : l + i };
+        if (ltok !== rtok) return false;
+    }
+
+    return false;
+} // end Object.prototype._scope_satisfied
+
 const w = reduceLHS(axioms);
 const x = reduceRHS(axioms);
 const y = expandLHS(axioms);
