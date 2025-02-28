@@ -78,10 +78,13 @@ try {
             let expand_rhs_commit_history_map = new Map();
             let proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
 
+            if (proofFoundFlag)
+                return proofFoundFlag;
+
             rewriteQueue(axioms);
 
             return proofFoundFlag;
-            
+
             function rewriteQueue(_axioms_) {
                 while (1) {
                     const AllQueuesEmptyFlag =
