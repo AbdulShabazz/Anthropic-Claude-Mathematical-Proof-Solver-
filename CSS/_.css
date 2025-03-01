@@ -42,6 +42,10 @@ textarea {
     border: 1px solid #ccc;
     box-sizing: border-box;
     resize: none;
+    white-space: pre;
+    word-wrap: normal;
+    overflow-wrap: normal;
+    overflow: scroll;
 }
 
 button {

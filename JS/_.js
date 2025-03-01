@@ -447,3 +447,5 @@ input.value = input.value
 1 + 2 + 1 = 4`;
 
 output.value = '';
+
+updateLineNumbers ();
