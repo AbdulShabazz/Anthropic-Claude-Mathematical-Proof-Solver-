@@ -8,7 +8,6 @@ try {
     let _lineNumbers = document.getElementById ('line-numbers');
 
     function solveProblem () {
-        rewriteHistoryProofFoundFlag = false;
         const { axioms, proofStatement } = parseInput (_input.value);
         const startTime = performance.now ();
         _output.value = generateProof (axioms, proofStatement);
@@ -363,7 +362,7 @@ try {
 
     } // end generateProof
      
-    Object.prototype._tryReplace = function(from, to) {
+    Array.prototype._tryReplace = function(from, to) {
         if (from.length > this.length)
           return false;
       
