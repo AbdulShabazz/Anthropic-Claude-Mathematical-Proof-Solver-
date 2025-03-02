@@ -1,7 +1,7 @@
 
 try {
 
-    /** Benchmark 32ms (test case 246) */
+    /** Benchmark 25ms (test case 246) */
 
     let _input = document.getElementById ('input');
     let _output = document.getElementById ('output');
@@ -55,13 +55,18 @@ try {
 
     function generateProof (all_axioms, proofStatement) {
         let [lhs, rhs] = proofStatement.subnets;
-        const proofFound = (() => {
-            class CommitEntryCl {
-                constructor({ gIDW = '', commit = [] }={}) {
-                    this.gIDW = gIDW;
-                    this.commit = commit;
-                }
+
+        let LHS_PartialProofStack = [];
+        let RHS_PartialProofStack = [];
+
+        class CommitEntryCl {
+            constructor({ gIDW = '', commit = [] }={}) {
+                this.gIDW = gIDW;
+                this.commit = commit;
             }
+        } // end CommitEntryCl
+
+        const proofFound = (() => {
 
             // Use core axioms only //
             let axioms = [...all_axioms];
@@ -142,6 +147,9 @@ try {
                                 alreadyReducedSet:_alreadyReducedSet_,
                                 commitHistory:commitHistory
                             });
+                            if (commitHistory.length > LHS_PartialProofStack.length) {
+                                LHS_PartialProofStack = commitHistory;
+                            }
                             const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
                                 || expand_rhs_commit_history_map.has(new_rewrite));
                             if (_ProofFoundFlag_)  {
@@ -197,6 +205,9 @@ try {
                                 alreadyReducedSet:_alreadyReducedSet_,
                                 commitHistory:commitHistory
                             });
+                            if (commitHistory.length > RHS_PartialProofStack.length) {
+                                RHS_PartialProofStack = commitHistory;
+                            }
                             const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
                                 || expand_lhs_commit_history_map.has(new_rewrite));
                             if (_ProofFoundFlag_) {
@@ -252,6 +263,9 @@ try {
                                 alreadyExpandedSet:_alreadyExpandedSet_,
                                 commitHistory:commitHistory
                             });
+                            if (commitHistory.length > LHS_PartialProofStack.length) {
+                                LHS_PartialProofStack = commitHistory;
+                            }
                             const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
                                 || expand_rhs_commit_history_map.has(new_rewrite));
                             if (_ProofFoundFlag_) {
@@ -307,6 +321,9 @@ try {
                                 alreadyExpandedSet:_alreadyExpandedSet_,
                                 commitHistory:commitHistory
                             });
+                            if (commitHistory.length > RHS_PartialProofStack.length) {
+                                RHS_PartialProofStack = commitHistory;
+                            }
                             const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
                                 || expand_lhs_commit_history_map.has(new_rewrite));
                             if (_ProofFoundFlag_) {
@@ -331,16 +348,21 @@ try {
                 } // end whiile (1)
             } // end expandRHS
             
-        })(); // end proofFound inline func
+        })(); // end proofFound (inline) func
 
-        if (!proofFound) {
+        if  (
+                !proofFound 
+                && LHS_PartialProofStack.length < 1 
+                && RHS_PartialProofStack.length < 1
+            )
+        {
             return `No proof found.`;
         }
         else {
             const lambda_func = (u) => {
                 let W = '';
-                const _lhs_ = u[0];
-                const _rhs_ = u[1];
+                const _lhs_ = u[0]?.length ? u[0] : [new CommitEntryCl({ gIDW:'root', commit:lhs })] ;
+                const _rhs_ = u[1]?.length ? u[1] : [new CommitEntryCl({ gIDW:'root', commit:rhs })] ;
                 const _lhs_I = u[0].length;
                 const _rhs_I = u[1].length;
                 const x = `${ _lhs_[ (_lhs_I-1) ].commit.join(' ') }`;
@@ -357,7 +379,7 @@ try {
                 } // end for (let i = 0; i < _rhs_I; ++i) {
                 return W; 
             } // end lambda_func
-            return `Proof Found!\n\n${ lambda_func(proofFound) }\nQ.E.D.`;
+            return `${( !proofFound ? 'Partial-' : '')}Proof Found!\n\n${ lambda_func(proofFound ? proofFound : [LHS_PartialProofStack, RHS_PartialProofStack]) }${( proofFound ? '\nQ.E.D.' : '' )}`;
         } // end if (!proofFound)
 
     } // end generateProof
