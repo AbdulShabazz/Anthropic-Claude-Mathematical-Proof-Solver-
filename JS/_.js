@@ -266,8 +266,8 @@ try {
         } // end class
         
         let i = 0;
-        let series = 1;
-        let replaceSeriesSet = new Set();
+        let series = -1;
+        let replaceSeries = [];
         const I = from.length;
         const J = this.length;
         const rewriteSZArray = [];
@@ -277,11 +277,13 @@ try {
             let _series_ = 0;    
             const tok = this[j];
             if (i < I && from[i] == tok) {
-                _series_ = series;
-                if (++i == I) {
-                    i = 0;
-                    rewriteFoundFlag = true;
-                    replaceSeriesSet.add(series++);
+                if (!tok.match (/\{/) || (from[(i+1)] == this[(j+1)])){
+                    _series_ = series;
+                    if (++i == I) {
+                        rewriteFoundFlag = true;
+                        replaceSeries.push (j);
+                        i = 0;
+                    }
                 }
             }
             rewriteSZArray.push(new keyCL({ series:_series_, tok:tok }) );
@@ -289,19 +291,17 @@ try {
         
         let ret = false;
         if (rewriteFoundFlag) {
-          ret = [];
-          let lastSeries = 0;
-          for (let o of rewriteSZArray) {
-            if (replaceSeriesSet.has (o.series)) {
-              if (o.series != lastSeries){
-                lastSeries = o.series;
-                ret.push(...to);
-              }
-            }
-            else {
-              ret.push (o.tok);
-            }
-          }    
+            i = 0;
+            ret = [];
+            for (let o of rewriteSZArray) {
+                if (o.series > -1 || (replaceSeries.length > 0 && i > replaceSeries[0])) {
+                    ret.push (o.tok);                    
+                } else if (replaceSeries.length > 0 && replaceSeries[0] == i) {
+                    ret.push(...to);
+                    replaceSeries.pop ();
+                }
+                ++i;
+            }    
         }
         
         return ret;
