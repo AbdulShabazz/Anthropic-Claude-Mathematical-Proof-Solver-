@@ -1,4 +1,3 @@
-
 try {
 
     /** Benchmark 25ms (test case 246) */
@@ -8,9 +7,9 @@ try {
     let _lineNumbers = document.getElementById ('line-numbers');
 
     function solveProblem () {
-        const { axioms, proofStatement } = parseInput (_input.value);
+        const { axioms, proofStatement, equivalences } = parseInput (_input.value);
         const startTime = performance.now ();
-        _output.value = generateProof (axioms, proofStatement);
+        _output.value = generateProof (axioms, proofStatement, equivalences);
         _output.value += `\n\nTotal runtime: ${ (performance.now ()-startTime).toFixed(4) } Milliseconds`;
     } // end solveProblem
 
@@ -18,22 +17,39 @@ try {
         let lines = input
             .split ('\n')
                 .filter (line => line.trim () && !line.startsWith ('//'));
-        let axiomsSet = new Set ();
+        
+        let all_axioms = [];
+        let equivalences = [];
 
         lines
             .slice ()
                 .forEach ((line,k,thisArray) => {
-                    const parts = line
-                        .split (/[~<]?=+[>]?/g)
-                            .map (s => s.trim ());
-                    parts.forEach ((part, i) => {
-                        parts.slice (i + 1).forEach ((otherPart, j, me) => {
-                            axiomsSet.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0` , guidZ: k });
+                    const axiomID = `axiom_${k+1}.0`;
+
+                    // Check if the line is a pure, symmetric equivalence rule
+                    const hasEquiv = line.includes('<==>');
+                    const hasOtherOps = line.includes('=') || line.includes('==>') || line.includes('<==');
+
+                    if (hasEquiv && !hasOtherOps) {
+                        // This line is for the rewrite engine
+                        const parts = line.split('<==>').map(s => s.trim());
+                        parts.forEach((part, i) => {
+                            parts.slice(i + 1).forEach((otherPart, j) => {
+                                equivalences.push({ from: part, to: otherPart, id: axiomID });
+                            });
+                         });
+                    } else {
+                        // This is a standard axiom line for the reduce/expand engine
+                        const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
+                        parts.forEach((part, i) => {
+                            parts.slice(i + 1).forEach((otherPart, j) => {
+                                all_axioms.push({ subnets: `${part} = ${otherPart}`, axiomID: axiomID, guidZ: k });
+                            });
                         });
-                    });
+                    }
                 });
 
-        const sortedAxioms = Array.from (axiomsSet)
+        const sortedAxioms = all_axioms
             .map (axiom => {
                 axiom.subnets = axiom.subnets
                     .split (' = ')
@@ -48,12 +64,13 @@ try {
 
         return {
             axioms: sortedAxioms,
-            proofStatement: proofStatement
+            proofStatement: proofStatement,
+            equivalences: equivalences
         };
 
     } // end parseInput
-
-    function generateProof (all_axioms, proofStatement) {
+    
+    function generateProof (all_axioms, proofStatement, equivalences) {
         let [lhs, rhs] = proofStatement.subnets;
 
         let LHS_PartialProofStack = [];
@@ -83,28 +100,32 @@ try {
             let proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
             
             // local scope to prevent naming collisions
-            let wVal;
-            let xVal;
-            let yVal;
-            let zVal;
+            let v, w, x, y, z, v2, w2, x2, y2, z2;
 
-            const ww = reduceLHS(axioms);
-            const xx = reduceRHS(axioms);
-            const yy = expandLHS(axioms);
-            const zz = expandRHS(axioms);
+            const axiom_reduce_lhs = axiom_LHS('reduce', axioms, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
+            const axiom_reduce_rhs = axiom_LHS('reduce', axioms, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+            const axiom_expand_lhs = axiom_LHS('expand', axioms, expand_lhs_queue, expand_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
+            const axiom_expand_rhs = axiom_LHS('expand', axioms, expand_rhs_queue, expand_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+
+            const equiv_rewrite_lhs = equiv_LHS('rewrite', equivalences, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
+            const equiv_rewrite_rhs = equiv_LHS('rewrite', equivalences, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+            const equiv_rewrite_expand_lhs = equiv_LHS('rewrite', equivalences, expand_lhs_queue, expand_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
+            const equiv_rewrite_expand_rhs = equiv_LHS('rewrite', equivalences, expand_rhs_queue, expand_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
 
             do {
                 if (proofFoundFlag) break;
 
-                // Advance each iterator and capture its .value
-                wVal = ww?.next()?.value;
-                xVal = xx?.next()?.value;
-                yVal = yy?.next()?.value;
-                zVal = zz?.next()?.value;
+                w = axiom_reduce_lhs?.next()?.value;
+                x = axiom_reduce_rhs?.next()?.value;
+                y = axiom_expand_lhs?.next()?.value;
+                z = axiom_expand_rhs?.next()?.value;
 
-                // If all are 0 or NaN or undefined, we should stop.
-                // Otherwise, keep looping.
-            } while (!allComplete(wVal, xVal, yVal, zVal));
+                w2 = equiv_rewrite_lhs?.next()?.value;
+                x2 = equiv_rewrite_rhs?.next()?.value;
+                y2 = equiv_rewrite_expand_lhs?.next()?.value;
+                z2 = equiv_rewrite_expand_rhs?.next()?.value;
+
+            } while (!allComplete(w, x, y, z, w2, x2, y2, z2));
 
             return proofFoundFlag;
 
@@ -116,271 +137,127 @@ try {
                 return true;
             } // end allComplete
 
-            function* reduceLHS(_axioms_) {
-                while (1) {
-                    if (proofFoundFlag || reduce_lhs_queue.length < 1)
-                        return 0;
-                    const _lhs_ = reduce_lhs_queue.shift();
+            function* axiom_LHS(action, _axioms_, queue, commit_map, partial_proof_stack, side) {
+                 while (1) {
+                    if (proofFoundFlag || queue.length < 1) return 0;
+                    const _side_ = queue.shift();
                     for (let axiom of _axioms_) {
-                        let tmp = [..._lhs_];
-                        const curr_rewrite = `${_lhs_.join(' ')}`;                     
-                        if (!reduce_lhs_commit_history_map.has(curr_rewrite)) {
-                            reduce_lhs_commit_history_map
-                                .set(curr_rewrite, {
-                                        alreadyReducedSet:new Set(),
-                                        commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
-                                    }
-                                );
-                        }
-                        const from = [...axiom.subnets[0]];
-                        const to = [...axiom.subnets[1]];
-                        const rewriteFoundFlag = tmp._tryReplace(from,to);
+                        let tmp = [..._side_];
+                        const from = action === 'reduce' ? [...axiom.subnets[0]] : [...axiom.subnets[1]];
+                        const to = action === 'reduce' ? [...axiom.subnets[1]] : [...axiom.subnets[0]];
+                        const rewriteFoundFlag = tmp._tryReplace(from, to);
                         if (rewriteFoundFlag) {
-                            reduce_lhs_queue.push([...rewriteFoundFlag]);
-                            const new_rewrite = rewriteFoundFlag.join(' ');
-                            const commitHistory = [
-                                ...reduce_lhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:`lhs reduce via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
-                            ];
-                            let _alreadyReducedSet_ = new Set([ ...reduce_lhs_commit_history_map.get(curr_rewrite).alreadyReducedSet, axiom.axiomID ]);
-                            reduce_lhs_commit_history_map.set(new_rewrite, {
-                                alreadyReducedSet:_alreadyReducedSet_,
-                                commitHistory:commitHistory
-                            });
-                            if (commitHistory.length > LHS_PartialProofStack.length) {
-                                LHS_PartialProofStack = commitHistory;
-                            }
-                            const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
-                                || expand_rhs_commit_history_map.has(new_rewrite));
-                            if (_ProofFoundFlag_)  {
-                                // Capture the LHS commit history once.
-                                const lhsCommits = reduce_lhs_commit_history_map.get(new_rewrite).commitHistory;
-
-                                // Determine which RHS map to use.
-                                const rhsMap = reduce_rhs_commit_history_map.has(new_rewrite)
-                                    ? reduce_rhs_commit_history_map
-                                    : expand_rhs_commit_history_map ;
-
-                                // Set the proofFoundFlag from both sides.
-                                proofFoundFlag = [
-                                    [...lhsCommits],
-                                    [...rhsMap.get(new_rewrite).commitHistory]
-                                ];
-                                
-                            } // end if (_ProofFoundFlag_)
+                            processNewRewrite(rewriteFoundFlag, side, action, axiom.axiomID, commit_map, queue, partial_proof_stack, _side_);
+                            if (proofFoundFlag) return 1;
                             yield 1;
-                        } // end if (rewriteFoundFlag)
-                    } // end for (let axiom of _axioms)
-                } // end while (1)
-            } // end reduceLHS
-
-            function* reduceRHS(_axioms_) {
-                while (1) {
-                    if (proofFoundFlag || reduce_rhs_queue.length < 1)
-                        return 0;
-                    const _rhs_ = reduce_rhs_queue.shift();
-                    for (let axiom of _axioms_) {
-                        let tmp = [..._rhs_];
-                        const curr_rewrite = `${_rhs_.join(' ')}`;
-                        if (!reduce_rhs_commit_history_map.has(curr_rewrite)) {
-                            reduce_rhs_commit_history_map
-                                .set(curr_rewrite, {
-                                        alreadyReducedSet:new Set(),
-                                        commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
-                                    }
-                                );
                         }
-                        const from = [...axiom.subnets[0]];
-                        const to = [...axiom.subnets[1]];
-                        const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
-                            reduce_rhs_queue.push([...rewriteFoundFlag]);
-                            const new_rewrite = rewriteFoundFlag.join(' ');
-                            const commitHistory = [
-                                ...reduce_rhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:`rhs reduce via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
-                            ];
-                            let _alreadyReducedSet_ = new Set([ ...reduce_rhs_commit_history_map.get(curr_rewrite).alreadyReducedSet, axiom.axiomID ]);
-                            reduce_rhs_commit_history_map.set(new_rewrite, {
-                                alreadyReducedSet:_alreadyReducedSet_,
-                                commitHistory:commitHistory
-                            });
-                            if (commitHistory.length > RHS_PartialProofStack.length) {
-                                RHS_PartialProofStack = commitHistory;
+                    }
+                }
+            }
+
+            function* equiv_LHS(action, _equivalences_, queue, commit_map, partial_proof_stack, side) {
+                while(1) {
+                    if (proofFoundFlag || queue.length < 1) return 0;
+                    const _side_ = queue.shift();
+                    for (let i = 0; i < _side_.length; i++) {
+                        for (const equiv of _equivalences_) {
+                            const token = _side_[i];
+                            
+                            // Forward rewrite: from -> to
+                            if (token.startsWith(equiv.from)) {
+                                const suffix = token.substring(equiv.from.length);
+                                const newToken = equiv.to + suffix;
+                                const new_expr = [..._side_.slice(0, i), newToken, ..._side_.slice(i + 1)];
+                                processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack, _side_);
+                                if (proofFoundFlag) return 1;
+                                yield 1;
                             }
-                            const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
-                                || expand_lhs_commit_history_map.has(new_rewrite));
-                            if (_ProofFoundFlag_) {
-                                // Capture the RHS commit history once.
-                                const rhsCommits = reduce_rhs_commit_history_map.get(new_rewrite).commitHistory;
 
-                                // Determine which LHS map to use.
-                                const lhsMap = reduce_lhs_commit_history_map.has(new_rewrite)
-                                    ? reduce_lhs_commit_history_map
-                                    : expand_lhs_commit_history_map ;
-
-                                // Set the proofFoundFlag from both sides.
-                                proofFoundFlag = [
-                                    [...lhsMap.get(new_rewrite).commitHistory],
-                                    [...rhsCommits]
-                                ];
-                                
-                            } // end if (_ProofFoundFlag_)
-                            yield 1;
-                        } // end if (rewriteFoundFlag)
-                    } // end for (let axiom of _axioms)
-                } // end while (1)
-            } // end reduceRHS
-
-            function* expandLHS(_axioms_) {
-                while (1) {
-                    if (proofFoundFlag || expand_lhs_queue.length < 1)
-                        return 0;
-                    const _lhs_ = expand_lhs_queue.shift();
-                    for (let axiom of _axioms_) {
-                        let tmp = [..._lhs_];
-                        const curr_rewrite = `${_lhs_.join(' ')}`;
-                        if (!expand_lhs_commit_history_map.has(curr_rewrite)) {
-                            expand_lhs_commit_history_map
-                                .set(curr_rewrite, {
-                                    alreadyExpandedSet:new Set(),
-                                        commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
-                                    }
-                                );
+                            // Backward rewrite: to -> from
+                            if (token.startsWith(equiv.to)) {
+                                const suffix = token.substring(equiv.to.length);
+                                const newToken = equiv.from + suffix;
+                                const new_expr = [..._side_.slice(0, i), newToken, ..._side_.slice(i + 1)];
+                                processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack, _side_);
+                                if (proofFoundFlag) return 1;
+                                yield 1;
+                            }
                         }
-                        const from = [...axiom.subnets[1]];
-                        const to = [...axiom.subnets[0]];
-                        const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
-                            expand_lhs_queue.push([...rewriteFoundFlag]);
-                            const new_rewrite = rewriteFoundFlag.join(' ');
-                            const commitHistory = [
-                                ...expand_lhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:`lhs expand via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
-                            ];
-                            let _alreadyExpandedSet_ = new Set([ ...expand_lhs_commit_history_map.get(curr_rewrite).alreadyExpandedSet, axiom.axiomID ]);
-                            expand_lhs_commit_history_map.set(new_rewrite, {
-                                alreadyExpandedSet:_alreadyExpandedSet_,
-                                commitHistory:commitHistory
-                            });
-                            if (commitHistory.length > LHS_PartialProofStack.length) {
-                                LHS_PartialProofStack = commitHistory;
-                            }
-                            const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
-                                || expand_rhs_commit_history_map.has(new_rewrite));
-                            if (_ProofFoundFlag_) {
-                                // Capture the LHS commit history once.
-                                const lhsCommits = expand_lhs_commit_history_map.get(new_rewrite).commitHistory;
-
-                                // Determine which RHS map to use.
-                                const rhsMap = reduce_rhs_commit_history_map.has(new_rewrite)
-                                    ? reduce_rhs_commit_history_map
-                                    : expand_rhs_commit_history_map ;
-
-                                // Set the proofFoundFlag from both sides.
-                                proofFoundFlag = [
-                                    [...lhsCommits],
-                                    [...rhsMap.get(new_rewrite).commitHistory]
-                                ];
-                                
-                            } // end if (_ProofFoundFlag_)
-                            yield 1;
-                        } // end if (rewriteFoundFlag)
-                    } // end for (let axiom of _axioms)
-                } // end while (1)
-            } // end expandLHS
-
-            function* expandRHS(_axioms_) {
-                while (1) {
-                    if (proofFoundFlag || expand_rhs_queue.length < 1)
-                        return 0;
-                    const _rhs_ = expand_rhs_queue.shift();
-                    for (let axiom of _axioms_) {
-                        let tmp = [..._rhs_];
-                        const curr_rewrite = `${_rhs_.join(' ')}`;
-                        if (!expand_rhs_commit_history_map.has(curr_rewrite)) {
-                            expand_rhs_commit_history_map
-                                .set(curr_rewrite, {
-                                        alreadyExpandedSet:new Set(),
-                                        commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
-                                    }
-                                );
-                        }
-                        const from = [...axiom.subnets[1]];
-                        const to = [...axiom.subnets[0]];
-                        const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
-                            expand_rhs_queue.push([...rewriteFoundFlag]);
-                            const new_rewrite = rewriteFoundFlag.join(' ');
-                            const commitHistory = [
-                                ...expand_rhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:`rhs expand via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
-                            ];
-                            let _alreadyExpandedSet_ = new Set([ ...expand_rhs_commit_history_map.get(curr_rewrite).alreadyExpandedSet, axiom.axiomID ]);
-                            expand_rhs_commit_history_map.set(new_rewrite, {
-                                alreadyExpandedSet:_alreadyExpandedSet_,
-                                commitHistory:commitHistory
-                            });
-                            if (commitHistory.length > RHS_PartialProofStack.length) {
-                                RHS_PartialProofStack = commitHistory;
-                            }
-                            const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
-                                || expand_lhs_commit_history_map.has(new_rewrite));
-                            if (_ProofFoundFlag_) {
-                                // Capture the RHS commit history once.
-                                const rhsCommits = expand_rhs_commit_history_map.get(new_rewrite).commitHistory;
-
-                                // Determine which LHS map to use.
-                                const lhsMap = reduce_lhs_commit_history_map.has(new_rewrite)
-                                    ? reduce_lhs_commit_history_map
-                                    : expand_lhs_commit_history_map ;
-
-                                // Set the proofFoundFlag from both sides.
-                                proofFoundFlag = [
-                                    [...lhsMap.get(new_rewrite).commitHistory],
-                                    [...rhsCommits]
-                                ];
-                                
-                            } // end if (_ProofFoundFlag_)
-                            yield 1; 
-                        } // end if (rewriteFoundFlag)
-                    } // end for (let axiom of _axioms)
-                } // end whiile (1)
-            } // end expandRHS
+                    }
+                }
+            }
             
-        })(); // end proofFound (inline) func
+            function processNewRewrite(new_expr_array, side, action, via_id, commit_map, queue, partial_proof_stack, original_expr) {
+                const new_rewrite_str = new_expr_array.join(' ');
+                if (commit_map.has(new_rewrite_str)) return;
 
-        if  (
-                !proofFound 
-                && LHS_PartialProofStack.length < 1 
-                && RHS_PartialProofStack.length < 1
-            )
-        {
+                const original_str = original_expr.join(' ');
+                
+                let commitHistory = [];
+                if (commit_map.has(original_str)) {
+                    commitHistory = [...commit_map.get(original_str).commitHistory];
+                } else {
+                     commitHistory.push(new CommitEntryCl({ gIDW: 'root', commit: (side === 'lhs' ? lhs : rhs) }));
+                }
+
+                commitHistory.push(new CommitEntryCl({ gIDW: `${side} ${action} via ${via_id}`, commit: [...new_expr_array] }));
+                
+                commit_map.set(new_rewrite_str, { commitHistory });
+                queue.push(new_expr_array);
+
+                if (commitHistory.length > partial_proof_stack.length) {
+                    partial_proof_stack = commitHistory;
+                }
+
+                const other_maps = side === 'lhs' ? [reduce_rhs_commit_history_map, expand_rhs_commit_history_map] : [reduce_lhs_commit_history_map, expand_lhs_commit_history_map];
+                for (const other_map of other_maps) {
+                    if (other_map.has(new_rewrite_str)) {
+                        const lhsCommits = side === 'lhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
+                        const rhsCommits = side === 'rhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
+                        proofFoundFlag = [lhsCommits, rhsCommits];
+                        return;
+                    }
+                }
+            }
+
+        })();
+
+        if (!proofFound && LHS_PartialProofStack.length < 1 && RHS_PartialProofStack.length < 1) {
             return `No proof found.`;
-        }
-        else {
+        } else {
             const lambda_func = (u) => {
                 let W = '';
                 const _lhs_ = u[0]?.length ? u[0] : [new CommitEntryCl({ gIDW:'root', commit:lhs })] ;
                 const _rhs_ = u[1]?.length ? u[1] : [new CommitEntryCl({ gIDW:'root', commit:rhs })] ;
-                const _lhs_I = u[0].length;
-                const _rhs_I = u[1].length;
-                const x = `${ _lhs_[ (_lhs_I-1) ].commit.join(' ') }`;
-                const y = `${ _rhs_[0].commit.join(' ') }`;
-                for (let i = 0; i < _lhs_I; ++i) {
-                    const w = `${ _lhs_[i].commit.join(' ') }`;
-                    const detailsW = `, ${ _lhs_[i].gIDW }`;
-                    W += `${ w } = ${ y }${ detailsW }\n`;
-                } // end for (let i = 0; i < _lhs_I; ++i) {
-                for (let i = 1; i < _rhs_I; ++i) {
-                    const w = `${ _rhs_[i].commit.join(' ') }`;
-                    const detailsW = `, ${ _rhs_[i].gIDW }`;
-                    W += `${ x } = ${ w }${ detailsW }\n`;
-                } // end for (let i = 0; i < _rhs_I; ++i) {
-                return W; 
-            } // end lambda_func
-            return `${( !proofFound ? 'Partial-' : '')}Proof Found!\n\n${ lambda_func(proofFound ? proofFound : [LHS_PartialProofStack, RHS_PartialProofStack]) }${( proofFound ? '\nQ.E.D.' : '' )}`;
-        } // end if (!proofFound)
+                const _lhs_I = _lhs_.length;
+                const _rhs_I = _rhs_.length;
+                
+                const finalLHS = _lhs_[_lhs_I - 1].commit.join(' ');
+                const finalRHS = _rhs_[_rhs_I - 1].commit.join(' ');
+
+                const meetingPoint = finalLHS; 
+
+                // Print LHS path
+                for(let i = 1; i < _lhs_I; i++) {
+                    W += `${_lhs_[i].commit.join(' ')} = ${finalRHS}, ${_lhs_[i].gIDW}\n`;
+                }
+                
+                // Print RHS path
+                const rhs_path_reversed = [..._rhs_].reverse();
+                for(let i = 1; i < _rhs_I; i++) {
+                     W += `${finalLHS} = ${rhs_path_reversed[i].commit.join(' ')}, ${rhs_path_reversed[i].gIDW}\n`;
+                }
+
+                return W.trim();
+            }
+             const proofText = proofFound ? proofFound : [LHS_PartialProofStack, RHS_PartialProofStack];
+             const firstStep = proofText[0][0];
+
+             let proofString = `${( !proofFound ? 'Partial-' : '')}Proof Found!\n\n${firstStep.commit.join(' ')} = ${rhs.join(' ')}, ${firstStep.gIDW}\n`;
+             proofString += lambda_func(proofText);
+             
+            return `${( !proofFound ? 'Partial-' : '')}Proof Found!\n\n${firstStep.commit.join(' ')} = ${rhs.join(' ')}, ${firstStep.gIDW}\n${lambda_func(proofText)}\n${( proofFound ? '\nQ.E.D.' : '' )}`;
+        }
 
     } // end generateProof
      
@@ -406,14 +283,14 @@ try {
         for (let j = 0; j < J; ++j) {
             let _series_ = 0;    
             const tok = this[j];
-            if (from[i] == tok) {
+            if (i < I && from[i] == tok) {
                 _series_ = series;
                 if (++i == I) {
                     i = 0;
                     rewriteFoundFlag = true;
                     replaceSeriesSet.add(series++);
-                } // end if (++i == I)
-            } // end if (from[i] == tok)
+                }
+            }
             rewriteSZArray.push(new keyCL({ series:_series_, tok:tok }) );
         }
         
@@ -435,7 +312,7 @@ try {
         }
         
         return ret;
-    } // end Object.prototype._tryReplace
+    }
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
