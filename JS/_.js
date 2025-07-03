@@ -34,10 +34,10 @@ try {
                     const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
                     parts.forEach((part, i) => {
                         parts.slice(i + 1).forEach((otherPart, j) => {
-                            if (!hasEquiv && hasOtherOps)
+                            //if (!hasEquiv && hasOtherOps)
                                 all_axioms.push({ subnets: `${part} = ${otherPart}`, axiomID: axiomID, guidZ: k });
-                            else if (hasEquiv && !hasOtherOps)
-                                equivalences.push({ from: part, to: otherPart, id: axiomID });
+                            //else if (hasEquiv && !hasOtherOps)
+                             //   equivalences.push({ from: part, to: otherPart, id: axiomID });
                         });
                     });
                 });
@@ -93,7 +93,7 @@ try {
             let proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
             
             // local scope to prevent naming collisions
-            let v, w, x, y, z, v2, w2, x2, y2, z2;
+            let w, x, y, z, w2, x2, y2, z2;
 
             const axiom_reduce_lhs = axiom_rewrite('reduce', axioms, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
             const axiom_reduce_rhs = axiom_rewrite('reduce', axioms, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
@@ -120,6 +120,16 @@ try {
 
             } while (!allComplete(w, x, y, z, w2, x2, y2, z2));
 
+            /* if(reduce_lhs_queue.length > LHS_PartialProofStack.length)
+                LHS_PartialProofStack = [...reduce_lhs_queue];
+            if(expand_lhs_queue.length > LHS_PartialProofStack.length)
+                LHS_PartialProofStack = [...expand_lhs_queue];
+
+            if(reduce_rhs_queue.length > RHS_PartialProofStack.length)
+                RHS_PartialProofStack = [...reduce_rhs_queue];
+            if(expand_rhs_queue.length > RHS_PartialProofStack.length)
+                RHS_PartialProofStack = [...expand_rhs_queue]; */
+
             return proofFoundFlag;
 
             function allComplete(...vals) {
@@ -130,7 +140,7 @@ try {
                 return true;
             } // end allComplete
 
-            function* axiom_rewrite(action, _axioms_, queue, commit_map, partial_proof_stack, side) {
+            function* axiom_rewrite(action, _axioms_, queue, commit_map, partial_proof_stack_, side) {
                  while (1) {
                     if (proofFoundFlag || queue.length < 1) return 0;
                     const _side_ = queue.shift();
@@ -138,9 +148,17 @@ try {
                         let tmp = [..._side_];
                         const from = action === 'reduce' ? [...axiom.subnets[0]] : [...axiom.subnets[1]];
                         const to = action === 'reduce' ? [...axiom.subnets[1]] : [...axiom.subnets[0]];
-                        const rewriteFoundFlag = tmp._tryReplace(from, to);
-                        if (rewriteFoundFlag) {
-                            processNewRewrite(rewriteFoundFlag, side, action, axiom.axiomID, commit_map, queue, partial_proof_stack, _side_);
+                        const rewriteFoundFlag_A = tmp._tryReplace_A(from, to);
+                        if (rewriteFoundFlag_A) {
+                            partial_proof_stack_ = 
+                                processNewRewrite(rewriteFoundFlag_A, side, action, axiom.axiomID, commit_map, queue, partial_proof_stack_, _side_);
+                            if (proofFoundFlag) return 1;
+                            yield 1;
+                        }
+                        const rewriteFoundFlag_B = tmp._tryReplace_B(from, to);
+                        if (rewriteFoundFlag_B) {
+                            partial_proof_stack_ = 
+                                processNewRewrite(rewriteFoundFlag_B, side, action, axiom.axiomID, commit_map, queue, partial_proof_stack_, _side_);
                             if (proofFoundFlag) return 1;
                             yield 1;
                         }
@@ -148,7 +166,7 @@ try {
                 }
             }
 
-            function* equiv_rewrite(action, _equivalences_, queue, commit_map, partial_proof_stack, side) {
+            function* equiv_rewrite(action, _equivalences_, queue, commit_map, partial_proof_stack_, side) {
                 while(1) {
                     if (proofFoundFlag || queue.length < 1) return 0;
                     const _side_ = queue.shift();
@@ -161,7 +179,8 @@ try {
                                 const suffix = token.substring(equiv.from.length);
                                 const newToken = equiv.to + suffix;
                                 const new_expr = [..._side_.slice(0, i), newToken, ..._side_.slice(i + 1)];
-                                processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack, _side_);
+                                partial_proof_stack_ = 
+                                    processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack_, _side_);
                                 if (proofFoundFlag) return 1;
                                 yield 1;
                             }
@@ -171,7 +190,8 @@ try {
                                 const suffix = token.substring(equiv.to.length);
                                 const newToken = equiv.from + suffix;
                                 const new_expr = [..._side_.slice(0, i), newToken, ..._side_.slice(i + 1)];
-                                processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack, _side_);
+                                partial_proof_stack_ = 
+                                    processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack_, _side_);
                                 if (proofFoundFlag) return 1;
                                 yield 1;
                             }
@@ -180,7 +200,7 @@ try {
                 }
             }
             
-            function processNewRewrite(new_expr_array, side, action, via_id, commit_map, queue, partial_proof_stack, original_expr) {
+            function processNewRewrite(new_expr_array, side, action, via_id, commit_map, queue, partial_proof_stack_, original_expr) {
                 const new_rewrite_str = new_expr_array.join(' ');
                 if (commit_map.has(new_rewrite_str)) return;
 
@@ -198,8 +218,8 @@ try {
                 commit_map.set(new_rewrite_str, { commitHistory });
                 queue.push(new_expr_array);
 
-                if (commitHistory.length > partial_proof_stack.length) {
-                    partial_proof_stack = commitHistory;
+                if (commitHistory.length > partial_proof_stack_.length) {
+                    partial_proof_stack_ = commitHistory;
                 }
 
                 const other_maps = side === 'lhs' ? [reduce_rhs_commit_history_map, expand_rhs_commit_history_map] : [reduce_lhs_commit_history_map, expand_lhs_commit_history_map];
@@ -208,9 +228,11 @@ try {
                         const lhsCommits = side === 'lhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
                         const rhsCommits = side === 'rhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
                         proofFoundFlag = [lhsCommits, rhsCommits];
-                        return;
+                        return partial_proof_stack_;
                     }
                 }
+
+                return partial_proof_stack_;
             }
 
         })();
@@ -251,7 +273,7 @@ try {
 
     } // end generateProof
      
-    Array.prototype._tryReplace = function(from, to) {
+    Array.prototype._tryReplace_A = function(from, to) {
         if (from.length > this.length)
           return false;
       
@@ -302,7 +324,60 @@ try {
         }
         
         return ret;
-    }
+    } // end Array.prototype._tryReplace_A
+     
+    Array.prototype._tryReplace_B = function(from, to) {
+        if (from.length > this.length)
+            return false;
+      
+        class keyCL {
+            constructor({ series=0, tok='' }={}) {
+                this.series = series;
+                this.tok = tok;
+            }
+        } // end class
+        
+        let i = 0;
+        let series = 1;
+        let replaceSeriesSet = new Set();
+        const I = from.length;
+        const J = this.length;
+        const rewriteSZArray = [];
+        let rewriteFoundFlag = false;
+      
+        for (let j = 0; j < J; ++j) {
+            let _series_ = 0;    
+            const tok = this[j];
+            if (from[i] == tok) {
+                _series_ = series;
+                if (++i == I) {
+                    i = 0;
+                    rewriteFoundFlag = true;
+                    replaceSeriesSet.add(series++);
+                } // end if (++i == I)
+            } // end if (from[i] == tok)
+            rewriteSZArray.push(new keyCL({ series:_series_, tok:tok }) );
+        }
+        
+        let ret = false;
+        if (rewriteFoundFlag) {
+            ret = [];
+            let lastSeries = 0;
+            for (let o of rewriteSZArray) {
+                if (replaceSeriesSet.has (o.series)) {
+                if (o.series != lastSeries){
+                    lastSeries = o.series;
+                    ret.push(...to);
+                }
+                }
+                else {
+                ret.push (o.tok);
+                }
+            }    
+        }
+        
+        return ret;
+    } // end Array.prototype._tryReplace_B
 
     function updateLineNumbers () {
         const lines = _input.value.split ('\n');
