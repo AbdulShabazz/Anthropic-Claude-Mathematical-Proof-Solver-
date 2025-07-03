@@ -27,26 +27,19 @@ try {
                     const axiomID = `axiom_${k+1}.0`;
 
                     // Check if the line is a pure, symmetric equivalence rule
-                    const hasEquiv = line.includes('<==>');
-                    const hasOtherOps = line.includes('=') || line.includes('==>') || line.includes('<==');
+                    const hasEquiv = line.match(/\<==|==\>/g);
+                    const hasOtherOps = line.includes('=');
 
-                    if (hasEquiv && !hasOtherOps) {
-                        // This line is for the rewrite engine
-                        const parts = line.split('<==>').map(s => s.trim());
-                        parts.forEach((part, i) => {
-                            parts.slice(i + 1).forEach((otherPart, j) => {
-                                equivalences.push({ from: part, to: otherPart, id: axiomID });
-                            });
-                         });
-                    } else {
-                        // This is a standard axiom line for the reduce/expand engine
-                        const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
-                        parts.forEach((part, i) => {
-                            parts.slice(i + 1).forEach((otherPart, j) => {
+                    // This is a standard axiom line for the reduce/expand engine
+                    const parts = line.split(/[~<]?=+[>]?/g).map(s => s.trim());
+                    parts.forEach((part, i) => {
+                        parts.slice(i + 1).forEach((otherPart, j) => {
+                            if (!hasEquiv && hasOtherOps)
                                 all_axioms.push({ subnets: `${part} = ${otherPart}`, axiomID: axiomID, guidZ: k });
-                            });
+                            else if (hasEquiv && !hasOtherOps)
+                                equivalences.push({ from: part, to: otherPart, id: axiomID });
                         });
-                    }
+                    });
                 });
 
         const sortedAxioms = all_axioms
@@ -102,15 +95,15 @@ try {
             // local scope to prevent naming collisions
             let v, w, x, y, z, v2, w2, x2, y2, z2;
 
-            const axiom_reduce_lhs = axiom_LHS('reduce', axioms, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
-            const axiom_reduce_rhs = axiom_LHS('reduce', axioms, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
-            const axiom_expand_lhs = axiom_LHS('expand', axioms, expand_lhs_queue, expand_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
-            const axiom_expand_rhs = axiom_LHS('expand', axioms, expand_rhs_queue, expand_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+            const axiom_reduce_lhs = axiom_rewrite('reduce', axioms, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
+            const axiom_reduce_rhs = axiom_rewrite('reduce', axioms, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+            const axiom_expand_lhs = axiom_rewrite('expand', axioms, expand_lhs_queue, expand_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
+            const axiom_expand_rhs = axiom_rewrite('expand', axioms, expand_rhs_queue, expand_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
 
-            const equiv_rewrite_lhs = equiv_LHS('rewrite', equivalences, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
-            const equiv_rewrite_rhs = equiv_LHS('rewrite', equivalences, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
-            const equiv_rewrite_expand_lhs = equiv_LHS('rewrite', equivalences, expand_lhs_queue, expand_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
-            const equiv_rewrite_expand_rhs = equiv_LHS('rewrite', equivalences, expand_rhs_queue, expand_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+            const equiv_rewrite_lhs = equiv_rewrite('rewrite', equivalences, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
+            const equiv_rewrite_rhs = equiv_rewrite('rewrite', equivalences, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+            const equiv_rewrite_expand_lhs = equiv_rewrite('rewrite', equivalences, expand_lhs_queue, expand_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
+            const equiv_rewrite_expand_rhs = equiv_rewrite('rewrite', equivalences, expand_rhs_queue, expand_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
 
             do {
                 if (proofFoundFlag) break;
@@ -137,7 +130,7 @@ try {
                 return true;
             } // end allComplete
 
-            function* axiom_LHS(action, _axioms_, queue, commit_map, partial_proof_stack, side) {
+            function* axiom_rewrite(action, _axioms_, queue, commit_map, partial_proof_stack, side) {
                  while (1) {
                     if (proofFoundFlag || queue.length < 1) return 0;
                     const _side_ = queue.shift();
@@ -155,7 +148,7 @@ try {
                 }
             }
 
-            function* equiv_LHS(action, _equivalences_, queue, commit_map, partial_proof_stack, side) {
+            function* equiv_rewrite(action, _equivalences_, queue, commit_map, partial_proof_stack, side) {
                 while(1) {
                     if (proofFoundFlag || queue.length < 1) return 0;
                     const _side_ = queue.shift();
