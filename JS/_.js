@@ -69,6 +69,9 @@ try {
         let LHS_PartialProofStack = [];
         let RHS_PartialProofStack = [];
 
+        localStorage.setItem('LHS_PartialProofStack','[]');
+        localStorage.setItem('RHS_PartialProofStack','[]');
+
         class CommitEntryCl {
             constructor({ gIDW = '', commit = [] }={}) {
                 this.gIDW = gIDW;
@@ -179,8 +182,7 @@ try {
                                 const suffix = token.substring(equiv.from.length);
                                 const newToken = equiv.to + suffix;
                                 const new_expr = [..._side_.slice(0, i), newToken, ..._side_.slice(i + 1)];
-                                partial_proof_stack_ = 
-                                    processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack_, _side_);
+                                processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack_);
                                 if (proofFoundFlag) return 1;
                                 yield 1;
                             }
@@ -190,8 +192,7 @@ try {
                                 const suffix = token.substring(equiv.to.length);
                                 const newToken = equiv.from + suffix;
                                 const new_expr = [..._side_.slice(0, i), newToken, ..._side_.slice(i + 1)];
-                                partial_proof_stack_ = 
-                                    processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack_, _side_);
+                                processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack_);
                                 if (proofFoundFlag) return 1;
                                 yield 1;
                             }
@@ -219,7 +220,8 @@ try {
                 queue.push(new_expr_array);
 
                 if (commitHistory.length > partial_proof_stack_.length) {
-                    partial_proof_stack_ = commitHistory;
+                    localStorage.setItem((side === 'lhs' ? 'LHS_PartialProofStack' : 'RHS_PartialProofStack'), JSON.stringify(commitHistory, ' ', 2)); 
+                    //partial_proof_stack_ = commitHistory;
                 }
 
                 const other_maps = side === 'lhs' ? [reduce_rhs_commit_history_map, expand_rhs_commit_history_map] : [reduce_lhs_commit_history_map, expand_lhs_commit_history_map];
@@ -228,16 +230,17 @@ try {
                         const lhsCommits = side === 'lhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
                         const rhsCommits = side === 'rhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
                         proofFoundFlag = [lhsCommits, rhsCommits];
-                        return partial_proof_stack_;
+                        return;
                     }
                 }
-
-                return partial_proof_stack_;
             }
 
         })();
 
-        if (!proofFound && LHS_PartialProofStack.length < 1 && RHS_PartialProofStack.length < 1) {
+        LHS_PartialProofStack = JSON.parse(localStorage.getItem('LHS_PartialProofStack'));
+        RHS_PartialProofStack = JSON.parse(localStorage.getItem('RHS_PartialProofStack'));
+
+        if (!proofFound && (LHS_PartialProofStack.length < 1 && RHS_PartialProofStack.length < 1)) {
             return `No proof found.`;
         } else {
             const lambda_func = (u) => {
