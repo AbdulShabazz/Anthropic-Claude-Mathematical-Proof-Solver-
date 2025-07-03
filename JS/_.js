@@ -226,19 +226,16 @@ try {
                 const _rhs_I = _rhs_.length;
                 
                 const finalLHS = _lhs_[_lhs_I - 1].commit.join(' ');
-                const finalRHS = _rhs_[_rhs_I - 1].commit.join(' ');
-
-                const meetingPoint = finalLHS; 
+                const startRHS = _rhs_[0].commit.join(' ');
 
                 // Print LHS path
                 for(let i = 1; i < _lhs_I; i++) {
-                    W += `${_lhs_[i].commit.join(' ')} = ${finalRHS}, ${_lhs_[i].gIDW}\n`;
+                    W += `${_lhs_[i].commit.join(' ')} = ${startRHS}, ${_lhs_[i].gIDW}\n`;
                 }
                 
                 // Print RHS path
-                const rhs_path_reversed = [..._rhs_].reverse();
                 for(let i = 1; i < _rhs_I; i++) {
-                     W += `${finalLHS} = ${rhs_path_reversed[i].commit.join(' ')}, ${rhs_path_reversed[i].gIDW}\n`;
+                     W += `${finalLHS} = ${_rhs_[i].commit.join(' ')}, ${_rhs_[i].gIDW}\n`;
                 }
 
                 return W.trim();
