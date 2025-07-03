@@ -364,3 +364,25 @@ TEST CASE [PASS]
 
 // Theorem to prove
 { { a } raised { 2 } } plus { { b } raised { 2 } } = { c } raised { 2 }
+
+TEST CASE [PASS]
+
+// Axioms 
+1:integer:number + 1:integer:number = 2:integer:number 
+2.0:rational:number + 2:integer:number = 4:integer:number 
+2.0:rational <==> 2:integer 
+1.0:rational <==> 1:integer 
+
+// Theorem to Prove 
+1:integer:number + 1:integer:number + 1:integer:number + 1:integer:number = 4:integer:number 
+
+TEST CASE [PASS]
+
+// Axioms 
+1:integer:number + 1:integer:number = 2:integer:number 
+2.0:rational:number + 2:integer:number = 4:integer:number 
+2.0:rational <==> 2.0:rational <==> 2:integer
+1.0:rational <==> 1:integer 
+
+// Theorem to Prove 
+1:integer:number + 1:integer:number + 1:integer:number + 1:integer:number = 4:integer:number 
