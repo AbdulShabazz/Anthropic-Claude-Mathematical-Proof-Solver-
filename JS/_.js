@@ -386,13 +386,13 @@ try {
      
     Array.prototype._tryReplace = function(from, to) {
         if (from.length > this.length)
-          return false;
+            return false;
       
         class keyCL {
-          constructor({ series=0, tok='' }={}) {
-            this.series = series;
-            this.tok = tok;
-          }
+            constructor({ series=0, tok='' }={}) {
+                this.series = series;
+                this.tok = tok;
+            }
         } // end class
         
         let i = 0;
@@ -419,19 +419,19 @@ try {
         
         let ret = false;
         if (rewriteFoundFlag) {
-          ret = [];
-          let lastSeries = 0;
-          for (let o of rewriteSZArray) {
-            if (replaceSeriesSet.has (o.series)) {
-              if (o.series != lastSeries){
-                lastSeries = o.series;
-                ret.push(...to);
-              }
-            }
-            else {
-              ret.push (o.tok);
-            }
-          }    
+            ret = [];
+            let lastSeries = 0;
+            for (let o of rewriteSZArray) {
+                if (replaceSeriesSet.has (o.series)) {
+                if (o.series != lastSeries){
+                    lastSeries = o.series;
+                    ret.push(...to);
+                }
+                }
+                else {
+                ret.push (o.tok);
+                }
+            }    
         }
         
         return ret;
