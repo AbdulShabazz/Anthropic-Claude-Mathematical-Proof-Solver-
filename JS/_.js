@@ -510,7 +510,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-
 input.value = input.value ||
 `// Axioms and Lemmas
 1 + 1 = 2
