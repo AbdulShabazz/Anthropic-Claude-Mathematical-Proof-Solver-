@@ -312,7 +312,7 @@ try {
             
             function processNewRewrite(new_expr_array, side, action, via_id, state, original_expr) {
 
-                // const state = { queue: [], commit_map: new Map(), proofFound_: false };
+                // const state = { queue: [], commit_map: new Map(), partial_proof_stack_: [], proofFound_: false };
 
                 const new_rewrite_str = new_expr_array.join(' ');
 
