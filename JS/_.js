@@ -245,7 +245,7 @@ try {
                     }
 
                 }
-                // no rewrite was performed //
+                // no rewrites performed //
                 yield 0
             }
 
