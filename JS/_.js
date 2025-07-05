@@ -337,7 +337,9 @@ try {
                     localStorage.setItem(((side == 'lhs') ? 'LHS_PartialProofStack' : 'RHS_PartialProofStack'), JSON.stringify(commitHistory, ' ', 2)) 
                 }
 
-                const other_maps = side === 'lhs' ? [reduce_rhs_commit_history_map, expand_rhs_commit_history_map] : [reduce_lhs_commit_history_map, expand_lhs_commit_history_map];
+                const other_maps = side === 'lhs' 
+                    ? [reduce_rhs_commit_history_map, expand_rhs_commit_history_map] 
+                    : [reduce_lhs_commit_history_map, expand_lhs_commit_history_map] ;
                 for (const other_map of other_maps) {
                     if (other_map.has(new_rewrite_str)) {
                         const lhsCommits = side === 'lhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
