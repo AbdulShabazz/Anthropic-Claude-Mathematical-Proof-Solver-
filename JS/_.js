@@ -72,14 +72,6 @@ try {
         localStorage.setItem('LHS_PartialProofStack', '[]');
         localStorage.setItem('RHS_PartialProofStack', '[]');
 
-        let LHS_reduce_PartialProofStack = [];
-        let RHS_reduce_PartialProofStack = [];
-        let LHS_expand_PartialProofStack = [];
-        let RHS_expand_PartialProofStack = [];
-
-        localStorage.setItem('LHS_PartialProofStack','[]');
-        localStorage.setItem('RHS_PartialProofStack','[]');
-
         class CommitEntryCl {
             constructor({ gIDW = '', commit = [] }={}) {
                 this.gIDW = gIDW;
@@ -132,49 +124,49 @@ try {
                 w = axiom_reduce_lhs?.next({
                         queue: reduce_lhs_queue,
                         commit_map: reduce_lhs_commit_history_map,
-                        partial_proof_stack_: LHS_reduce_PartialProofStack,
+                        partial_proof_stack_: LHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
                 x = axiom_reduce_rhs?.next({
                         queue: reduce_rhs_queue,
                         commit_map: reduce_rhs_commit_history_map,
-                        partial_proof_stack_: RHS_reduce_PartialProofStack,
+                        partial_proof_stack_: RHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
                 y = axiom_expand_lhs?.next({
                         queue: expand_lhs_queue,
                         commit_map: expand_lhs_commit_history_map,
-                        partial_proof_stack_: LHS_expand_PartialProofStack,
+                        partial_proof_stack_: LHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
                 z = axiom_expand_rhs?.next({
                         queue: expand_rhs_queue,
                         commit_map: expand_rhs_commit_history_map,
-                        partial_proof_stack_: RHS_expand_PartialProofStack,
+                        partial_proof_stack_: RHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
 
                 w2 = equiv_rewrite_reduce_lhs?.next({
                         queue: reduce_lhs_queue,
                         commit_map: reduce_lhs_commit_history_map,
-                        partial_proof_stack_: [],
+                        partial_proof_stack_: LHS_PartialProofStack,
                         proofFound_: proofFoundFlag})?.value;
                 x2 = equiv_rewrite_reduce_rhs?.next({
                         queue: reduce_rhs_queue,
                         commit_map: reduce_rhs_commit_history_map,
-                        partial_proof_stack_: [],
+                        partial_proof_stack_: RHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
                 y2 = equiv_rewrite_expand_lhs?.next({
                         queue: expand_lhs_queue,
                         commit_map: expand_lhs_commit_history_map,
-                        partial_proof_stack_: [],
+                        partial_proof_stack_: LHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
                 z2 = equiv_rewrite_expand_rhs?.next({
                         queue: expand_rhs_queue,
                         commit_map: expand_rhs_commit_history_map,
-                        partial_proof_stack_: [],
+                        partial_proof_stack_: RHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
 
@@ -192,7 +184,7 @@ try {
 
             function* axiom_rewrite(action, _axioms_, side) {
 
-                // const params = { queue: [], commit_map: new Map(), proofFound_: false };
+                // const params = { queue: [], commit_map: new Map(), partial_proof_stack_: [], proofFound_: false,  };
 
                 while (1) {
                     const params = yield;
@@ -330,17 +322,9 @@ try {
                 state.commit_map.set(new_rewrite_str, { commitHistory });
                 state.queue.push(new_expr_array);
 
-                let partial_proof_stack_ = (side == 'lhs') 
-                    ? JSON.parse(localStorage.getItem('LHS_PartialProofStack')) 
-                    : JSON.parse(localStorage.getItem('RHS_PartialProofStack')) ;
-
-                if (commitHistory.length > partial_proof_stack_.length) {
-                    partial_proof_stack_ = commitHistory;
+                if (commitHistory.length > state.partial_proof_stack_.length) {
+                    localStorage.setItem(((side == 'lhs') ? 'LHS_PartialProofStack' : 'RHS_PartialProofStack'), JSON.stringify(commitHistory, ' ', 2)) 
                 }
-
-                const partial_proof_stack_store_confirm = (side == 'lhs') 
-                    ? localStorage.setItem('LHS_PartialProofStack', JSON.stringify(LHS_PartialProofStack, ' ', 2)) 
-                    : localStorage.setItem('RHS_PartialProofStack', JSON.stringify(RHS_PartialProofStack, ' ', 2)) ;
 
                 const other_maps = side === 'lhs' ? [reduce_rhs_commit_history_map, expand_rhs_commit_history_map] : [reduce_lhs_commit_history_map, expand_lhs_commit_history_map];
                 for (const other_map of other_maps) {
