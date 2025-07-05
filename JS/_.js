@@ -69,6 +69,14 @@ try {
         let LHS_PartialProofStack = [];
         let RHS_PartialProofStack = [];
 
+        localStorage.setItem('LHS_PartialProofStack', '[]');
+        localStorage.setItem('RHS_PartialProofStack', '[]');
+
+        let LHS_reduce_PartialProofStack = [];
+        let RHS_reduce_PartialProofStack = [];
+        let LHS_expand_PartialProofStack = [];
+        let RHS_expand_PartialProofStack = [];
+
         localStorage.setItem('LHS_PartialProofStack','[]');
         localStorage.setItem('RHS_PartialProofStack','[]');
 
@@ -98,40 +106,79 @@ try {
             // local scope to prevent naming collisions
             let w, x, y, z, w2, x2, y2, z2;
 
-            const axiom_reduce_lhs = axiom_rewrite('reduce', axioms, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
-            const axiom_reduce_rhs = axiom_rewrite('reduce', axioms, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
-            const axiom_expand_lhs = axiom_rewrite('expand', axioms, expand_lhs_queue, expand_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
-            const axiom_expand_rhs = axiom_rewrite('expand', axioms, expand_rhs_queue, expand_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+            const axiom_reduce_lhs = axiom_rewrite('reduce', axioms, 'lhs');
+            const axiom_reduce_rhs = axiom_rewrite('reduce', axioms, 'rhs');
+            const axiom_expand_lhs = axiom_rewrite('expand', axioms, 'lhs');
+            const axiom_expand_rhs = axiom_rewrite('expand', axioms, 'rhs');
 
-            const equiv_rewrite_lhs = equiv_rewrite('rewrite', equivalences, reduce_lhs_queue, reduce_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
-            const equiv_rewrite_rhs = equiv_rewrite('rewrite', equivalences, reduce_rhs_queue, reduce_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
-            const equiv_rewrite_expand_lhs = equiv_rewrite('rewrite', equivalences, expand_lhs_queue, expand_lhs_commit_history_map, LHS_PartialProofStack, 'lhs');
-            const equiv_rewrite_expand_rhs = equiv_rewrite('rewrite', equivalences, expand_rhs_queue, expand_rhs_commit_history_map, RHS_PartialProofStack, 'rhs');
+            const equiv_rewrite_reduce_lhs = equiv_rewrite('rewrite', equivalences, 'lhs');
+            const equiv_rewrite_reduce_rhs = equiv_rewrite('rewrite', equivalences, 'rhs');
+            const equiv_rewrite_expand_lhs = equiv_rewrite('rewrite', equivalences, 'lhs');
+            const equiv_rewrite_expand_rhs = equiv_rewrite('rewrite', equivalences, 'rhs');
+
+            // prime generators
+
+            axiom_reduce_lhs?.next();
+            axiom_reduce_rhs?.next();
+            axiom_expand_lhs?.next();
+            axiom_expand_rhs?.next();
+
+            equiv_rewrite_reduce_lhs?.next();
+            equiv_rewrite_reduce_rhs?.next();
+            equiv_rewrite_expand_lhs?.next();
+            equiv_rewrite_expand_rhs?.next();
 
             do {
-                if (proofFoundFlag) break;
+                w = axiom_reduce_lhs?.next({
+                        queue: reduce_lhs_queue,
+                        commit_map: reduce_lhs_commit_history_map,
+                        partial_proof_stack_: LHS_reduce_PartialProofStack,
+                        proofFound_: proofFoundFlag
+                    })?.value;
+                x = axiom_reduce_rhs?.next({
+                        queue: reduce_rhs_queue,
+                        commit_map: reduce_rhs_commit_history_map,
+                        partial_proof_stack_: RHS_reduce_PartialProofStack,
+                        proofFound_: proofFoundFlag
+                    })?.value;
+                y = axiom_expand_lhs?.next({
+                        queue: expand_lhs_queue,
+                        commit_map: expand_lhs_commit_history_map,
+                        partial_proof_stack_: LHS_expand_PartialProofStack,
+                        proofFound_: proofFoundFlag
+                    })?.value;
+                z = axiom_expand_rhs?.next({
+                        queue: expand_rhs_queue,
+                        commit_map: expand_rhs_commit_history_map,
+                        partial_proof_stack_: RHS_expand_PartialProofStack,
+                        proofFound_: proofFoundFlag
+                    })?.value;
 
-                w = axiom_reduce_lhs?.next()?.value;
-                x = axiom_reduce_rhs?.next()?.value;
-                y = axiom_expand_lhs?.next()?.value;
-                z = axiom_expand_rhs?.next()?.value;
-
-                w2 = equiv_rewrite_lhs?.next()?.value;
-                x2 = equiv_rewrite_rhs?.next()?.value;
-                y2 = equiv_rewrite_expand_lhs?.next()?.value;
-                z2 = equiv_rewrite_expand_rhs?.next()?.value;
+                w2 = equiv_rewrite_reduce_lhs?.next({
+                        queue: reduce_lhs_queue,
+                        commit_map: reduce_lhs_commit_history_map,
+                        partial_proof_stack_: [],
+                        proofFound_: proofFoundFlag})?.value;
+                x2 = equiv_rewrite_reduce_rhs?.next({
+                        queue: reduce_rhs_queue,
+                        commit_map: reduce_rhs_commit_history_map,
+                        partial_proof_stack_: [],
+                        proofFound_: proofFoundFlag
+                    })?.value;
+                y2 = equiv_rewrite_expand_lhs?.next({
+                        queue: expand_lhs_queue,
+                        commit_map: expand_lhs_commit_history_map,
+                        partial_proof_stack_: [],
+                        proofFound_: proofFoundFlag
+                    })?.value;
+                z2 = equiv_rewrite_expand_rhs?.next({
+                        queue: expand_rhs_queue,
+                        commit_map: expand_rhs_commit_history_map,
+                        partial_proof_stack_: [],
+                        proofFound_: proofFoundFlag
+                    })?.value;
 
             } while (!allComplete(w, x, y, z, w2, x2, y2, z2));
-
-            /* if(reduce_lhs_queue.length > LHS_PartialProofStack.length)
-                LHS_PartialProofStack = [...reduce_lhs_queue];
-            if(expand_lhs_queue.length > LHS_PartialProofStack.length)
-                LHS_PartialProofStack = [...expand_lhs_queue];
-
-            if(reduce_rhs_queue.length > RHS_PartialProofStack.length)
-                RHS_PartialProofStack = [...reduce_rhs_queue];
-            if(expand_rhs_queue.length > RHS_PartialProofStack.length)
-                RHS_PartialProofStack = [...expand_rhs_queue]; */
 
             return proofFoundFlag;
 
@@ -143,36 +190,79 @@ try {
                 return true;
             } // end allComplete
 
-            function* axiom_rewrite(action, _axioms_, queue, commit_map, partial_proof_stack_, side) {
-                 while (1) {
-                    if (proofFoundFlag || queue.length < 1) return 0;
-                    const _side_ = queue.shift();
+            function* axiom_rewrite(action, _axioms_, side) {
+
+                // const params = { queue: [], commit_map: new Map(), proofFound_: false };
+
+                while (1) {
+                    const params = yield;
+
+                    if (!params || params.queue.length < 1){
+                        yield 0;
+                        continue;
+                    }
+
+                    if (!!params.proofFound_)
+                        break;
+
+                    const original_expr = params.queue.shift();
+
+                    let noRewritesFlag = true;
+
                     for (let axiom of _axioms_) {
-                        let tmp = [..._side_];
+                        let tmp = [...original_expr];
                         const from = action === 'reduce' ? [...axiom.subnets[0]] : [...axiom.subnets[1]];
                         const to = action === 'reduce' ? [...axiom.subnets[1]] : [...axiom.subnets[0]];
                         const rewriteFoundFlag_A = tmp._tryReplace_A(from, to);
-                        if (rewriteFoundFlag_A) {
-                            partial_proof_stack_ = 
-                                processNewRewrite(rewriteFoundFlag_A, side, action, axiom.axiomID, commit_map, queue, partial_proof_stack_, _side_);
-                            if (proofFoundFlag) return 1;
-                            yield 1;
-                        }
                         const rewriteFoundFlag_B = tmp._tryReplace_B(from, to);
+                        if (rewriteFoundFlag_A) {
+                            noRewritesFlag = false;
+                            processNewRewrite(rewriteFoundFlag_A, side, action, axiom.axiomID, params, original_expr);
+                            if (!!!params.proofFound_){
+                                yield 1;
+                            } else {
+                                proofFoundFlag = params.proofFound_;
+                                return 0;
+                            }
+                        }
                         if (rewriteFoundFlag_B) {
-                            partial_proof_stack_ = 
-                                processNewRewrite(rewriteFoundFlag_B, side, action, axiom.axiomID, commit_map, queue, partial_proof_stack_, _side_);
-                            if (proofFoundFlag) return 1;
-                            yield 1;
+                            noRewritesFlag = false;
+                            processNewRewrite(rewriteFoundFlag_B, side, action, axiom.axiomID, params, original_expr);
+                            if (!!!params.proofFound_){
+                                yield 1;
+                            } else {
+                                proofFoundFlag = params.proofFound_;
+                                return 0;
+                            }
                         }
                     }
+
+                    if (noRewritesFlag) {
+                        yield 0;
+                    }
+
                 }
+                // no rewrite was performed //
+                yield 0
             }
 
-            function* equiv_rewrite(action, _equivalences_, queue, commit_map, partial_proof_stack_, side) {
-                while(1) {
-                    if (proofFoundFlag || queue.length < 1) return 0;
-                    const _side_ = queue.shift();
+            function* equiv_rewrite(action, _equivalences_, side) {
+
+                // const params = { queue: [], commit_map: new Map(), proofFound_: false };
+
+                while (1) {
+                    const params = yield;
+
+                    if (!params || params.queue.length < 1){
+                        yield 0;
+                        continue;
+                    }
+
+                    if (!!params.proofFound_)
+                        break;
+
+                    let noRewritesFlag = true;
+                    const _side_ = params.queue.shift();
                     for (let i = 0; i < _side_.length; i++) {
                         for (const equiv of _equivalences_) {
                             const token = _side_[i];
@@ -182,9 +272,14 @@ try {
                                 const suffix = token.substring(equiv.from.length);
                                 const newToken = equiv.to + suffix;
                                 const new_expr = [..._side_.slice(0, i), newToken, ..._side_.slice(i + 1)];
-                                processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack_);
-                                if (proofFoundFlag) return 1;
-                                yield 1;
+                                processNewRewrite(new_expr, side, action, equiv.id, params, original_expr);
+                                if (!!!params.proofFound_){
+                                    noRewritesFlag = false;
+                                    yield 1;
+                                } else {
+                                    proofFoundFlag = params.proofFound_;
+                                    return 0;
+                                }
                             }
 
                             // Backward rewrite: to -> from
@@ -192,45 +287,67 @@ try {
                                 const suffix = token.substring(equiv.to.length);
                                 const newToken = equiv.from + suffix;
                                 const new_expr = [..._side_.slice(0, i), newToken, ..._side_.slice(i + 1)];
-                                processNewRewrite(new_expr, side, action, equiv.id, commit_map, queue, partial_proof_stack_);
-                                if (proofFoundFlag) return 1;
-                                yield 1;
+                                processNewRewrite(new_expr, side, action, equiv.id, params, original_expr);
+                                if (!!!params.proofFound_){
+                                    noRewritesFlag = false;
+                                    yield 1;
+                                } else {
+                                    proofFoundFlag = params.proofFound_;
+                                    return 0;
+                                }
                             }
                         }
                     }
+
+                    if (noRewritesFlag) {
+                        yield 0;
+                    }
                 }
+                // no rewrite was performed //
+                yield 0
             }
             
-            function processNewRewrite(new_expr_array, side, action, via_id, commit_map, queue, partial_proof_stack_, original_expr) {
+            function processNewRewrite(new_expr_array, side, action, via_id, state, original_expr) {
+
+                // const state = { queue: [], commit_map: new Map(), proofFound_: false };
+
                 const new_rewrite_str = new_expr_array.join(' ');
-                if (commit_map.has(new_rewrite_str)) return;
+
+                if (state.commit_map.has(new_rewrite_str))
+                    return;
 
                 const original_str = original_expr.join(' ');
                 
                 let commitHistory = [];
-                if (commit_map.has(original_str)) {
-                    commitHistory = [...commit_map.get(original_str).commitHistory];
+                if (state.commit_map.has(original_str)) {
+                    commitHistory = [...state.commit_map.get(original_str).commitHistory];
                 } else {
                      commitHistory.push(new CommitEntryCl({ gIDW: 'root', commit: (side === 'lhs' ? lhs : rhs) }));
                 }
 
                 commitHistory.push(new CommitEntryCl({ gIDW: `${side} ${action} via ${via_id}`, commit: [...new_expr_array] }));
                 
-                commit_map.set(new_rewrite_str, { commitHistory });
-                queue.push(new_expr_array);
+                state.commit_map.set(new_rewrite_str, { commitHistory });
+                state.queue.push(new_expr_array);
+
+                let partial_proof_stack_ = (side == 'lhs') 
+                    ? JSON.parse(localStorage.getItem('LHS_PartialProofStack')) 
+                    : JSON.parse(localStorage.getItem('RHS_PartialProofStack')) ;
 
                 if (commitHistory.length > partial_proof_stack_.length) {
-                    localStorage.setItem((side === 'lhs' ? 'LHS_PartialProofStack' : 'RHS_PartialProofStack'), JSON.stringify(commitHistory, ' ', 2)); 
-                    //partial_proof_stack_ = commitHistory;
+                    partial_proof_stack_ = commitHistory;
                 }
+
+                const partial_proof_stack_store_confirm = (side == 'lhs') 
+                    ? localStorage.setItem('LHS_PartialProofStack', JSON.stringify(LHS_PartialProofStack, ' ', 2)) 
+                    : localStorage.setItem('RHS_PartialProofStack', JSON.stringify(RHS_PartialProofStack, ' ', 2)) ;
 
                 const other_maps = side === 'lhs' ? [reduce_rhs_commit_history_map, expand_rhs_commit_history_map] : [reduce_lhs_commit_history_map, expand_lhs_commit_history_map];
                 for (const other_map of other_maps) {
                     if (other_map.has(new_rewrite_str)) {
                         const lhsCommits = side === 'lhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
                         const rhsCommits = side === 'rhs' ? commitHistory : other_map.get(new_rewrite_str).commitHistory;
-                        proofFoundFlag = [lhsCommits, rhsCommits];
-                        return;
+                        state.proofFound_ = [lhsCommits, rhsCommits];
                     }
                 }
             }
@@ -279,13 +396,6 @@ try {
     Array.prototype._tryReplace_A = function(from, to) {
         if (from.length > this.length)
           return false;
-      
-        class keyCL {
-          constructor({ series=0, tok='' }={}) {
-            this.series = series;
-            this.tok = tok;
-          }
-        } // end class
         
         let i = 0;
         let series = -1;
@@ -308,7 +418,7 @@ try {
                     }
                 }
             }
-            rewriteSZArray.push(new keyCL({ series:_series_, tok:tok }) );
+            rewriteSZArray.push({ series:_series_, tok:tok });
         }
         
         let ret = false;
@@ -332,13 +442,6 @@ try {
     Array.prototype._tryReplace_B = function(from, to) {
         if (from.length > this.length)
             return false;
-      
-        class keyCL {
-            constructor({ series=0, tok='' }={}) {
-                this.series = series;
-                this.tok = tok;
-            }
-        } // end class
         
         let i = 0;
         let series = 1;
@@ -359,7 +462,7 @@ try {
                     replaceSeriesSet.add(series++);
                 } // end if (++i == I)
             } // end if (from[i] == tok)
-            rewriteSZArray.push(new keyCL({ series:_series_, tok:tok }) );
+            rewriteSZArray.push({ series:_series_, tok:tok });
         }
         
         let ret = false;
@@ -368,13 +471,12 @@ try {
             let lastSeries = 0;
             for (let o of rewriteSZArray) {
                 if (replaceSeriesSet.has (o.series)) {
-                if (o.series != lastSeries){
-                    lastSeries = o.series;
-                    ret.push(...to);
-                }
-                }
-                else {
-                ret.push (o.tok);
+                    if (o.series != lastSeries){
+                        lastSeries = o.series;
+                        ret.push(...to);
+                    }
+                } else {
+                    ret.push (o.tok);
                 }
             }    
         }
