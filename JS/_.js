@@ -182,7 +182,7 @@ function generateProofOptimized(axioms, proofStatement) {
                         yield {
                             expr: result,
                             axiom: axiom.axiomID,
-                            direction: from === axiom.subnets[0] ? 'forward' : 'backward'
+                            direction: from === axiom.subnets[0] ? 'forward expand' : 'backward reduce'
                         };
                     }
                 }
