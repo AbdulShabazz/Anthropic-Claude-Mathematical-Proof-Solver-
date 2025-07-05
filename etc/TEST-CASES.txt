@@ -368,21 +368,38 @@ TEST CASE [PASS]
 TEST CASE [PASS]
 
 // Axioms 
-1:integer:number + 1:integer:number = 2:integer:number 
-2.0:rational:number + 2:integer:number = 4:integer:number 
-2.0:rational <==> 2:integer 
-1.0:rational <==> 1:integer 
+{ number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 2 } } } 
+{ number { rational { 2.0 } } } + { number { integer { 2 } } } = { number { integer { 4 } } } 
+rational { 2.0 } <==> integer { 2 }
+rational { 1.0 } <==> integer { 1 }
 
 // Theorem to Prove 
-1:integer:number + 1:integer:number + 1:integer:number + 1:integer:number = 4:integer:number 
+{ number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 4 } } } 
 
 TEST CASE [PASS]
 
 // Axioms 
-1:integer:number + 1:integer:number = 2:integer:number 
-2.0:rational:number + 2:integer:number = 4:integer:number 
-2.0:rational <==> 2.0:rational <==> 2:integer
-1.0:rational <==> 1:integer 
+{ number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 2 } } } 
+{ number { rational { 2.0 } } } + { number { integer { 2 } } } = { number { integer { 4 } } } 
+rational { 2.0 } <==> rational { 2.0 } <==> integer { 2 }
+rational { 1.0 } <==> integer { 1 }
 
 // Theorem to Prove 
-1:integer:number + 1:integer:number + 1:integer:number + 1:integer:number = 4:integer:number 
+{ number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 4 } } } 
+
+TEST CASE [FAIL]
+
+// Pattern Variable Examples
+?x + 0 = ?x
+0 + ?x = ?x
+?x + ?y = ?y + ?x
+(?x + ?y) + ?z = ?x + (?y + ?z)
+succ ?n = ?n + 1
+
+// Concrete axioms
+1 + 1 = 2
+2 + 1 = 3
+3 + 1 = 4
+
+// Theorem to Prove
+1 + (2 + 0) = 3
