@@ -251,7 +251,7 @@ try {
 
             function* equiv_rewrite(action, _equivalences_, side) {
 
-                // const params = { queue: [], commit_map: new Map(), proofFound_: false };
+                // const params = { queue: [], commit_map: new Map(), partial_proof_stack_: [], proofFound_: false };
 
                 while (1) {
                     const params = yield;
