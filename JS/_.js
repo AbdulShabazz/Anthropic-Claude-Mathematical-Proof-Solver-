@@ -121,6 +121,9 @@ try {
             equiv_rewrite_expand_rhs?.next();
 
             do {
+                LHS_PartialProofStack = JSON.parse(localStorage.getItem('LHS_PartialProofStack'));
+                RHS_PartialProofStack = JSON.parse(localStorage.getItem('RHS_PartialProofStack'));
+
                 w = axiom_reduce_lhs?.next({
                         queue: reduce_lhs_queue,
                         commit_map: reduce_lhs_commit_history_map,
