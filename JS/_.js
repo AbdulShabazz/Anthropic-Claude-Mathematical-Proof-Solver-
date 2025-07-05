@@ -123,55 +123,63 @@ try {
             do {
                 LHS_PartialProofStack = JSON.parse(localStorage.getItem('LHS_PartialProofStack'));
                 RHS_PartialProofStack = JSON.parse(localStorage.getItem('RHS_PartialProofStack'));
-
                 w = axiom_reduce_lhs?.next({
                         queue: reduce_lhs_queue,
                         commit_map: reduce_lhs_commit_history_map,
                         partial_proof_stack_: LHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
+                LHS_PartialProofStack = JSON.parse(localStorage.getItem('LHS_PartialProofStack'));
                 x = axiom_reduce_rhs?.next({
                         queue: reduce_rhs_queue,
                         commit_map: reduce_rhs_commit_history_map,
                         partial_proof_stack_: RHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
+                RHS_PartialProofStack = JSON.parse(localStorage.getItem('RHS_PartialProofStack'));
                 y = axiom_expand_lhs?.next({
                         queue: expand_lhs_queue,
                         commit_map: expand_lhs_commit_history_map,
                         partial_proof_stack_: LHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
+                LHS_PartialProofStack = JSON.parse(localStorage.getItem('LHS_PartialProofStack'));
                 z = axiom_expand_rhs?.next({
                         queue: expand_rhs_queue,
                         commit_map: expand_rhs_commit_history_map,
                         partial_proof_stack_: RHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
+                RHS_PartialProofStack = JSON.parse(localStorage.getItem('RHS_PartialProofStack'));
 
                 w2 = equiv_rewrite_reduce_lhs?.next({
                         queue: reduce_lhs_queue,
                         commit_map: reduce_lhs_commit_history_map,
                         partial_proof_stack_: LHS_PartialProofStack,
-                        proofFound_: proofFoundFlag})?.value;
+                        proofFound_: proofFoundFlag
+                    })?.value;
+                LHS_PartialProofStack = JSON.parse(localStorage.getItem('LHS_PartialProofStack'));
                 x2 = equiv_rewrite_reduce_rhs?.next({
                         queue: reduce_rhs_queue,
                         commit_map: reduce_rhs_commit_history_map,
                         partial_proof_stack_: RHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
+                RHS_PartialProofStack = JSON.parse(localStorage.getItem('RHS_PartialProofStack'));
                 y2 = equiv_rewrite_expand_lhs?.next({
                         queue: expand_lhs_queue,
                         commit_map: expand_lhs_commit_history_map,
                         partial_proof_stack_: LHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
+                LHS_PartialProofStack = JSON.parse(localStorage.getItem('LHS_PartialProofStack'));
                 z2 = equiv_rewrite_expand_rhs?.next({
                         queue: expand_rhs_queue,
                         commit_map: expand_rhs_commit_history_map,
                         partial_proof_stack_: RHS_PartialProofStack,
                         proofFound_: proofFoundFlag
                     })?.value;
+                RHS_PartialProofStack = JSON.parse(localStorage.getItem('RHS_PartialProofStack'));
 
             } while (!allComplete(w, x, y, z, w2, x2, y2, z2));
 
