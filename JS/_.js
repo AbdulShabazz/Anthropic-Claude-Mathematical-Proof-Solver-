@@ -493,8 +493,25 @@ try {
     output.value = JSON.stringify (e, ' ', 2);
 }
 
-input.value = input.value
-? input.value :
+// JavaScript: Persist textarea contents using localStorage
+
+document.addEventListener('DOMContentLoaded', () => {
+    const textarea = input;
+
+    // Load saved value from localStorage if it exists
+    const savedText = JSON.parse(localStorage.getItem('lastProof'));
+    if (savedText !== null) {
+        textarea.value = savedText;
+    }
+
+    // Save value to localStorage on input
+    textarea.addEventListener('input', () => {
+        localStorage.setItem('lastProof', JSON.stringify(textarea.value, ' ', 2));
+    });
+});
+
+
+input.value = input.value ||
 `// Axioms and Lemmas
 1 + 1 = 2
 2 + 2 = 4
