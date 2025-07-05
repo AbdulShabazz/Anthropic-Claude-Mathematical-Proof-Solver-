@@ -7,6 +7,8 @@
     <style>
         body {
             font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
             margin: 20px;
             background-color: #f5f5f5;
         }
@@ -20,20 +22,23 @@
             flex: 1;
         }
         #line-numbers {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 30px;
-            padding: 10px 5px;
-            text-align: right;
-            color: #666;
-            background-color: #e0e0e0;
-            border: 1px solid #ccc;
-            border-right: none;
-            overflow: hidden;
-            user-select: none;
-            font-size: 14px;
-            line-height: 1.5;
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 31px;
+          height: 100%;
+          background-color: #f0f0f0;
+          padding: 11.5px 5px 5px 0;
+          text-align: right;
+          overflow: hidden;
+          font-family: 'Courier New', monospace;
+          font-size: 12px;
+          line-height: 1.5;
+          border: 1px solid #ccc;
+          border-right: none;
+          margin-bottom: 12px;
+          box-sizing: border-box;
         }
         textarea {
             width: 100%;
@@ -42,10 +47,11 @@
             padding-left: 45px;
             border: 1px solid #ccc;
             font-family: 'Courier New', monospace;
-            font-size: 14px;
+            font-size: 12px;
             line-height: 1.5;
-            resize: vertical;
-            display: block;
+            resize: none;
+            overflow-wrap: normal;
+            overflow: scroll;
         }
         #output {
             flex: 1;
@@ -74,7 +80,7 @@
     </style>
 </head>
 <body>
-    <h1>Optimized Proof System</h1>
+    <h1>Anthropic Claude (Optimized) Autmoated Proof System</h1>
     <div class="container">
         <div class="input-container">
             <div id="line-numbers"></div>
@@ -343,13 +349,14 @@
         }
 
         // Construct the final proof from two meeting paths
-        function constructProof(lhsState, rhsState) {
+        function constructProof(rhsState, lhsState) { /* swapped! */
             let proof = "Proof Found!\n\n";
             
             // LHS transformations
+            const rhsStart = rhsState.path[0].expr.join(' ')
             for (let i = 0; i < lhsState.path.length; i++) {
                 const step = lhsState.path[i];
-                proof += `${step.expr.join(' ')} = ${rhsState.path[0].expr.join(' ')}`;
+                proof += `${step.expr.join(' ')} = ${rhsStart}`;
                 if (step.rule !== 'start') {
                     proof += `, via ${step.rule}`;
                 }
@@ -357,9 +364,10 @@
             }
             
             // RHS transformations (in reverse)
+            const lhsEnd = lhsState.path[lhsState.path.length - 1].expr.join(' ')
             for (let i = 1; i < rhsState.path.length; i++) {
                 const step = rhsState.path[i];
-                proof += `${lhsState.path[lhsState.path.length - 1].expr.join(' ')} = ${step.expr.join(' ')}`;
+                proof += `${lhsEnd} = ${step.expr.join(' ')}`;
                 proof += `, via ${step.rule}\n`;
             }
             
@@ -419,9 +427,28 @@
                 .join('<br>');
         }
 
-        _input.addEventListener('keyup', updateLineNumbers);
+        _input.addEventListener('keyup', function() {updateLineNumbers();});
         _input.addEventListener('scroll', function() {
             _lineNumbers.scrollTop = this.scrollTop;
+        });
+
+        // JavaScript: Persist textarea contents using localStorage
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const textarea = _input;
+
+            // Load saved value from localStorage if it exists
+            const savedText = JSON.parse(localStorage.getItem('lastProof'));
+            if (savedText !== null) {
+                textarea.value = savedText;
+            }
+
+            // Save value to localStorage on _input
+            textarea.addEventListener('input', () => {
+                localStorage.setItem('lastProof', JSON.stringify(textarea.value, ' ', 2));
+            });
+
+            updateLineNumbers();
         });
 
         // Initialize with example
