@@ -202,7 +202,7 @@ try {
 
                     if (!params || params.queue.length < 1){
                         yield 0;
-                        continue;
+                        break;
                     }
 
                     if (!!params.proofFound_)
