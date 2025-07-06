@@ -3,6 +3,16 @@ let _output = document.getElementById('output');
 let _lineNumbers = document.getElementById('line-numbers');
 let _stats = document.getElementById('stats');
 
+const _searchStrategy = { 
+    option : {
+        _astar: { config: 'a*', description:'A* with heuristic.' },
+        _greedy: { config: 'greedy', description:'BFS (Greedy) - only use heuristic (h), not depth (g).' },
+        _adaptive: { config: 'adaptive', description:'Adaptive combination of BFS (Greedy) with A* for higher iterations.' },
+    }
+}
+
+const _currentSearchStrategy = _searchStrategy.option._astar
+
 // Binary Heap implementation for O(log n) operations
 class BinaryHeap {
     constructor(compareFn) {
@@ -340,7 +350,7 @@ function generateProofOptimized(axioms, proofStatement) {
         uniqueStates: 0,
         queueOps: 0,
         maxDepth: 0,
-        strategy: 'BFS (Greedy) with heuristic'
+        strategy: _currentSearchStrategy.description
     };
 
     // If already equal, return immediately
@@ -386,7 +396,7 @@ function generateProofOptimized(axioms, proofStatement) {
     // Unified search state
     class SearchState {
         constructor(expr, path, side, depth = 0, 
-                searchStrategy = 'greedy' /* 'greedy', 'a*', or 'adaptive' */) {
+                searchStrategy = _currentSearchStrategy.config) {
             this.expr = expr;
             this.canonicalExpr = expr; // canonicalize(expr); // fast! Only finds approximate solutions.
             this.exprStr = expr.join(' ');
