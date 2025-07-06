@@ -166,7 +166,7 @@ function generateProofOptimized(axioms, proofStatement) {
     rhsVisited.set(rhsStr, rhsStart);
 
     // Generate all possible rewrites for an expression
-    function* generateRewrites(expr, axiomList) {
+    function* generateRewrites(expr, axiomList, indir) {
         for (const axiom of axiomList) {
             // Try both directions
             for (const [from, to] of [[axiom.subnets[0], axiom.subnets[1]], 
@@ -182,7 +182,7 @@ function generateProofOptimized(axioms, proofStatement) {
                         yield {
                             expr: result,
                             axiom: axiom.axiomID,
-                            direction: from === axiom.subnets[0] ? 'forward expand' : 'backward reduce'
+                            direction: from === axiom.subnets[0] ? `${indir} expand` : `${indir} reduce`
                         };
                     }
                 }
@@ -221,7 +221,7 @@ function generateProofOptimized(axioms, proofStatement) {
             }
             
             // Generate and explore neighbors
-            for (const rewrite of generateRewrites(current.expr, axioms)) {
+            for (const rewrite of generateRewrites(current.expr, axioms, side)) {
                 const newExprStr = rewrite.expr.join(' ');
                 
                 // Skip if already visited with shorter path
