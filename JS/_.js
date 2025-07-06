@@ -108,8 +108,8 @@ function generateProofOptimized(axioms, proofStatement) {
 
     // Heuristic function: estimate distance between two expressions
     function heuristic(expr1, expr2) {
-        const arr1 = expr1.split(' ');
-        const arr2 = expr2.split(' ');
+        const arr1 = [...expr1];
+        const arr2 = [...expr2];
         
         // Combine multiple heuristics
         let h = 0;
@@ -142,10 +142,10 @@ function generateProofOptimized(axioms, proofStatement) {
             this.depth = depth;
         }
         
-        getPriority(targetStr) {
+        getPriority(targetExpr) {
             // f(n) = g(n) + h(n)
             const g = this.depth; // Cost so far
-            const h = heuristic(this.exprStr, targetStr); // Heuristic estimate
+            const h = heuristic(this.expr, targetExpr); // Heuristic estimate
             return g + h;
         }
     }
@@ -160,8 +160,8 @@ function generateProofOptimized(axioms, proofStatement) {
     const lhsStart = new SearchState(lhs, [{expr: lhs, rule: 'start'}], 'lhs');
     const rhsStart = new SearchState(rhs, [{expr: rhs, rule: 'start'}], 'rhs');
     
-    lhsQueue.enqueue(lhsStart, lhsStart.getPriority(rhsStr));
-    rhsQueue.enqueue(rhsStart, rhsStart.getPriority(lhsStr));
+    lhsQueue.enqueue(lhsStart, lhsStart.getPriority(rhs));
+    rhsQueue.enqueue(rhsStart, rhsStart.getPriority(lhs));
     lhsVisited.set(lhsStr, lhsStart);
     rhsVisited.set(rhsStr, rhsStart);
 
@@ -198,9 +198,9 @@ function generateProofOptimized(axioms, proofStatement) {
         if (iterations++ > maxIterations) break;
         
         // Alternate between queues for balanced search
-        for (const [queue, visited, otherVisited, side, targetStr] of [
-            [lhsQueue, lhsVisited, rhsVisited, 'lhs', rhsStr],
-            [rhsQueue, rhsVisited, lhsVisited, 'rhs', lhsStr]
+        for (const [queue, visited, otherVisited, side, targetExpr] of [
+            [lhsQueue, lhsVisited, rhsVisited, 'lhs', rhs],
+            [rhsQueue, rhsVisited, lhsVisited, 'rhs', lhs]
         ]) {
             if (queue.isEmpty()) continue;
             
@@ -241,7 +241,7 @@ function generateProofOptimized(axioms, proofStatement) {
                 );
                 
                 visited.set(newExprStr, newState);
-                queue.enqueue(newState, newState.getPriority(targetStr));
+                queue.enqueue(newState, newState.getPriority(targetExpr));
                 stats.queueOps++;
                 stats.uniqueStates = visited.size + otherVisited.size;
             }
