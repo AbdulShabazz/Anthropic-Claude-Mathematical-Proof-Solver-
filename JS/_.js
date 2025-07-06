@@ -313,7 +313,7 @@ function parseInput(input) {
     const sortedAxioms = Array.from(axiomsSet).map(axiom => {
         axiom.subnets = axiom.subnets
             .split(' = ')
-            .sort((a, b) => a.length - b.length) // (lhs/rhs) //
+            .sort((a, b) => b.length - a.length) // (lhs/rhs) //
             .map(pair => pair.match(/\S+/g));
         return axiom;
     });
@@ -388,7 +388,7 @@ function generateProofOptimized(axioms, proofStatement) {
         constructor(expr, path, side, depth = 0, 
                 searchStrategy = 'greedy' /* 'greedy', 'a*', or 'adaptive' */) {
             this.expr = expr;
-            this.canonicalExpr = canonicalize(expr);
+            this.canonicalExpr = expr; // canonicalize(expr); // fast! Only finds approximate solutions.
             this.exprStr = expr.join(' ');
             this.canonicalStr = this.canonicalExpr.join(' ');
             this.path = path;
@@ -433,7 +433,23 @@ function generateProofOptimized(axioms, proofStatement) {
                 // Check for pattern variables
                 const hasPattern = from.some(token => token.includes('?'));
                 
-                if (hasPattern) {
+                if (!hasPattern) {
+                    // Regular replacement
+                    const results = [
+                        tryReplace(expr, from, to, 'A'),
+                        tryReplace(expr, from, to, 'B')
+                    ];
+                    
+                    for (const result of results) {
+                        if (result) {
+                            yield {
+                                expr: result,
+                                axiom: axiom.axiomID,
+                                direction: to.length > from.length ? `expand` : `reduce`
+                            };
+                        }
+                    }
+                } else {
                     // Pattern matching
                     const match = matchPattern(from, expr);
                     if (match) {
@@ -447,24 +463,8 @@ function generateProofOptimized(axioms, proofStatement) {
                         yield {
                             expr: newExpr,
                             axiom: axiom.axiomID,
-                            direction: from === axiom.subnets[0] ? `expand` : `reduce`
+                            direction: to.length > from.length ? `expand` : `reduce`
                         };
-                    }
-                } else {
-                    // Regular replacement
-                    const results = [
-                        tryReplace(expr, from, to, 'A'),
-                        tryReplace(expr, from, to, 'B')
-                    ];
-                    
-                    for (const result of results) {
-                        if (result) {
-                            yield {
-                                expr: result,
-                                axiom: axiom.axiomID,
-                                direction: from === axiom.subnets[0] ? `expand` : `reduce`
-                            };
-                        }
                     }
                 }
             }
@@ -538,8 +538,11 @@ function generateProofOptimized(axioms, proofStatement) {
 }
 
 // Construct the final proof from two meeting paths
-function constructProof(lhsState, rhsState) {
+function constructProof(lhsState_, rhsState_) { /* bug */
     let proof = "Proof Found!\n\n";
+
+    const lhsState = lhsState_.side == "lhs" ? lhsState_ : rhsState_ ;
+    const rhsState = lhsState_.side == "lhs" ? rhsState_ : lhsState_ ;
     
     // LHS transformations
     const rhsStart = rhsState.path[0].expr.join(' ');
