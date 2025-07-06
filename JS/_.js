@@ -313,6 +313,7 @@ function parseInput(input) {
     const sortedAxioms = Array.from(axiomsSet).map(axiom => {
         axiom.subnets = axiom.subnets
             .split(' = ')
+            .sort((a, b) => a.length - b.length) // (lhs/rhs) //
             .map(pair => pair.match(/\S+/g));
         return axiom;
     });
@@ -328,6 +329,10 @@ function generateProofOptimized(axioms, proofStatement) {
     const [lhs, rhs] = proofStatement.subnets;
     const lhsStr = lhs.join(' ');
     const rhsStr = rhs.join(' ');
+
+    // Main search loop
+    let iterations = 0;
+    const maxIterations = 10000;
     
     // Statistics tracking
     const stats = {
@@ -380,7 +385,8 @@ function generateProofOptimized(axioms, proofStatement) {
 
     // Unified search state
     class SearchState {
-        constructor(expr, path, side, depth = 0) {
+        constructor(expr, path, side, depth = 0, 
+                searchStrategy = 'greedy' /* 'greedy', 'a*', or 'adaptive' */) {
             this.expr = expr;
             this.canonicalExpr = canonicalize(expr);
             this.exprStr = expr.join(' ');
@@ -388,11 +394,15 @@ function generateProofOptimized(axioms, proofStatement) {
             this.path = path;
             this.side = side;
             this.depth = depth;
+            this.searchStrategy = searchStrategy;
         }
         
         getPriority(targetExpr) {
-            // BFS (Greedy) - only use heuristic, not depth
-            return heuristic(this.canonicalExpr, targetExpr);
+            // BFS (Greedy) - only use heuristic, not depth, else
+            // A* f(n) = g(n) + h(n)
+            const g = this.depth; // Cost so far
+            const h = heuristic(this.canonicalExpr, targetExpr); // Heuristic estimate
+            return ((this.searchStrategy == 'a*') || ((this.searchStrategy == 'adaptive') && (iterations > (maxIterations * .1))) ? g : 0) + h;
         }
     }
 
@@ -437,7 +447,7 @@ function generateProofOptimized(axioms, proofStatement) {
                         yield {
                             expr: newExpr,
                             axiom: axiom.axiomID,
-                            direction: from === axiom.subnets[0] ? `${indir} expand` : `${indir} reduce`
+                            direction: from === axiom.subnets[0] ? `expand` : `reduce`
                         };
                     }
                 } else {
@@ -452,7 +462,7 @@ function generateProofOptimized(axioms, proofStatement) {
                             yield {
                                 expr: result,
                                 axiom: axiom.axiomID,
-                                direction: from === axiom.subnets[0] ? `${indir} expand` : `${indir} reduce`
+                                direction: from === axiom.subnets[0] ? `expand` : `reduce`
                             };
                         }
                     }
@@ -460,10 +470,6 @@ function generateProofOptimized(axioms, proofStatement) {
             }
         }
     }
-
-    // Main search loop
-    let iterations = 0;
-    const maxIterations = 10000;
     
     while (!lhsQueue.isEmpty() || !rhsQueue.isEmpty()) {
         if (iterations++ > maxIterations) break;
@@ -532,7 +538,7 @@ function generateProofOptimized(axioms, proofStatement) {
 }
 
 // Construct the final proof from two meeting paths
-function constructProof(rhsState, lhsState) {
+function constructProof(lhsState, rhsState) {
     let proof = "Proof Found!\n\n";
     
     // LHS transformations
@@ -541,8 +547,8 @@ function constructProof(rhsState, lhsState) {
         const step = lhsState.path[i];
         proof += `${step.expr.join(' ')} = ${rhsStart}`;
         if (step.rule !== 'start') {
-            proof += `, via ${step.rule}`;
-        }
+            proof += `, via ${step.rule} (lhs)`;
+        } 
         proof += '\n';
     }
     
@@ -551,7 +557,7 @@ function constructProof(rhsState, lhsState) {
     for (let i = 1; i < rhsState.path.length; i++) {
         const step = rhsState.path[i];
         proof += `${lhsEnd} = ${step.expr.join(' ')}`;
-        proof += `, via ${step.rule}\n`;
+        proof += `, via ${step.rule} (rhs)\n`;
     }
     
     proof += "\nQ.E.D.";
