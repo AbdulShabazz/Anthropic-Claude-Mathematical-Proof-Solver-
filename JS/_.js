@@ -556,8 +556,7 @@ function constructProof(lhsState, rhsState) {
     const lhsEnd = lhsState.path[lhsState.path.length - 1].expr.join(' ');
     for (let i = 1; i < rhsState.path.length; i++) {
         const step = rhsState.path[i];
-        proof += `${lhsEnd} = ${step.expr.join(' ')}`;
-        proof += `, via ${step.rule} (rhs)\n`;
+        proof += `${lhsEnd} = ${step.expr.join(' ')}, via ${step.rule} (rhs)\n`;
     }
     
     proof += "\nQ.E.D.";
