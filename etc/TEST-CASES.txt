@@ -1,4 +1,4 @@
-TEST CASE [PASS]
+TEST CASE [PASS] (trivial (direct))
 
 // Axioms and Lemmas
 1 + 1 = 2
@@ -8,7 +8,7 @@ TEST CASE [PASS]
 1 + 2 + 1 = 4
 
 
-TEST CASE [PASS]
+TEST CASE [PASS] (scoped test)
 
 // Axioms and Lemmas
 { 1 } + { 1 } = { 2 }
@@ -18,7 +18,7 @@ TEST CASE [PASS]
 { 1 } + { 2 } + { 1 } = { 4 }
 
 
-TEST CASE [PASS]
+TEST CASE [PASS] (via Reduce + Expand)
 
 // Axioms and Lemmas
 1 + 1 = 2
@@ -28,7 +28,7 @@ TEST CASE [PASS]
 1 + 2 + 1 = 3 + 1
 
 
-TEST CASE [PASS]
+TEST CASE [PASS] (direct)
 
 // Axioms and Lemmas
 1 + 1 = 2
@@ -38,9 +38,9 @@ TEST CASE [PASS]
 1 + 1 + 2 = 3 + 1
 
 
-TEST CASE (Via Reduce) [PASS]
+TEST CASE [PASS] (via Reduce only) 
 
-// Axioms and Lemmas
+// Axioms and Lemmas 
 1 + 1 = 2
 2 + 1 = 3
 2 + 2 = 4
@@ -50,9 +50,9 @@ TEST CASE (Via Reduce) [PASS]
 1 + 1 + 2 = 3 + 1
 
 
-TEST CASE [PASS]
+TEST CASE [PASS] (w/ extra axioms)
 
-// Axioms and Lemmas
+// Axioms and Lemmas 
 1 + 1 = 2
 2 + 2 = 4
 4 + 4 = 8
@@ -65,9 +65,9 @@ TEST CASE [PASS]
 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 = 18
 
 
-TEST CASE [PASS]
+TEST CASE [PASS] (w/ more extra axioms)
 
-// Axioms and Lemmas
+// Axioms and Lemmas 
 1 + 1 = 2
 1 + 2 = 3
 2 + 2 = 4
@@ -89,8 +89,69 @@ TEST CASE [PASS]
 // Prove
 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 = 18
 
+TEST CASE [PASS] (first theorem (direct))
 
-TEST CASE [PASS]
+// Axioms and Lemmas
+{ { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } <== { { a } plus { b } } raised { 2 }
+{ { a } plus { b } } raised { 2 } minus { 2ab } <== { c } raised { 2 }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } ==> { { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } minus { 2ab }
+{ { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
+
+// Theorem to prove
+{ { a } raised { 2 } } plus { { b } raised { 2 } } = { c } raised { 2 }
+
+TEST CASE [PASS] (first theorem (condensed))
+
+// Axioms and Lemmas
+{ { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } <== { { a } plus { b } } raised { 2 }
+{ { a } plus { b } } raised { 2 } minus { 2ab } = { c } raised { 2 } <== { { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
+{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } <==> { { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } minus { 2ab } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
+{ { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
+
+// Theorem to prove
+{ { a } raised { 2 } } plus { { b } raised { 2 } } = { c } raised { 2 }
+
+TEST CASE [PASS] (type instance support)
+
+// Axioms 
+{ number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 2 } } } 
+{ number { rational { 2.0 } } } + { number { integer { 2 } } } = { number { integer { 4 } } } 
+rational { 2.0 } <==> integer { 2 }
+rational { 1.0 } <==> integer { 1 }
+
+// Theorem to Prove 
+{ number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 4 } } } 
+
+TEST CASE [PASS] ((redundant) type instance support)
+
+// Axioms 
+{ number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 2 } } } 
+{ number { rational { 2.0 } } } + { number { integer { 2 } } } = { number { integer { 4 } } } 
+rational { 2.0 } <==> rational { 2.0 } <==> integer { 2 }
+rational { 1.0 } <==> integer { 1 }
+
+// Theorem to Prove 
+{ number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 4 } } } 
+
+TEST CASE [FAIL] (pattern variable support)
+
+// Pattern Variable Examples
+?x + 0 = ?x
+0 + ?x = ?x
+?x + ?y = ?y + ?x
+(?x + ?y) + ?z = ?x + (?y + ?z)
+succ ?n = ?n + 1
+
+// Concrete axioms
+1 + 1 = 2
+2 + 1 = 3
+3 + 1 = 4
+
+// Theorem to Prove
+1 + (2 + 0) = 3
+
+TEST CASE [PASS] (performance test)
 
 // Axioms and Lemmas
 1 + 1 = 2
@@ -341,65 +402,3 @@ TEST CASE [PASS]
 
 // Theorem to prove
 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 = 246
-
-TEST CASE [PASS]
-
-// Axioms and Lemmas
-{ { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } <== { { a } plus { b } } raised { 2 }
-{ { a } plus { b } } raised { 2 } minus { 2ab } <== { c } raised { 2 }
-{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
-{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } ==> { { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } minus { 2ab }
-{ { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
-
-// Theorem to prove
-{ { a } raised { 2 } } plus { { b } raised { 2 } } = { c } raised { 2 }
-
-TEST CASE [PASS]
-
-// Axioms and Lemmas
-{ { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } <== { { a } plus { b } } raised { 2 }
-{ { a } plus { b } } raised { 2 } minus { 2ab } = { c } raised { 2 } <== { { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
-{ { a } raised { 2 } } plus { 2ab } minus { 2ab } plus { { b } raised { 2 } } <==> { { a } raised { 2 } } plus { 2ab } plus { { b } raised { 2 } } minus { 2ab } ==> { { a } raised { 2 } } plus { { b } raised { 2 } }
-{ { a } plus { b } } raised { 2 } = { { c } raised { 2 } } plus { 2ab }
-
-// Theorem to prove
-{ { a } raised { 2 } } plus { { b } raised { 2 } } = { c } raised { 2 }
-
-TEST CASE [PASS]
-
-// Axioms 
-{ number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 2 } } } 
-{ number { rational { 2.0 } } } + { number { integer { 2 } } } = { number { integer { 4 } } } 
-rational { 2.0 } <==> integer { 2 }
-rational { 1.0 } <==> integer { 1 }
-
-// Theorem to Prove 
-{ number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 4 } } } 
-
-TEST CASE [PASS]
-
-// Axioms 
-{ number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 2 } } } 
-{ number { rational { 2.0 } } } + { number { integer { 2 } } } = { number { integer { 4 } } } 
-rational { 2.0 } <==> rational { 2.0 } <==> integer { 2 }
-rational { 1.0 } <==> integer { 1 }
-
-// Theorem to Prove 
-{ number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } + { number { integer { 1 } } } = { number { integer { 4 } } } 
-
-TEST CASE [FAIL]
-
-// Pattern Variable Examples
-?x + 0 = ?x
-0 + ?x = ?x
-?x + ?y = ?y + ?x
-(?x + ?y) + ?z = ?x + (?y + ?z)
-succ ?n = ?n + 1
-
-// Concrete axioms
-1 + 1 = 2
-2 + 1 = 3
-3 + 1 = 4
-
-// Theorem to Prove
-1 + (2 + 0) = 3
