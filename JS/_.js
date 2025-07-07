@@ -11,7 +11,8 @@ const _searchStrategy = {
     }
 }
 
-const _currentSearchStrategy = _searchStrategy.option._astar
+const _currentSearchStrategy = _searchStrategy.option._astar; // _astar,_greedy,_adaptive //
+const _canonicalFormFlag = false; // fast! Only finds approximate solutions.
 
 // Binary Heap implementation for O(log n) operations
 class BinaryHeap {
@@ -398,7 +399,9 @@ function generateProofOptimized(axioms, proofStatement) {
         constructor(expr, path, side, depth = 0, 
                 searchStrategy = _currentSearchStrategy.config) {
             this.expr = expr;
-            this.canonicalExpr = expr; // canonicalize(expr); // fast! Only finds approximate solutions.
+            this.canonicalExpr = _canonicalFormFlag 
+                ? canonicalize(expr) /* fast! Only finds approximate solutions. */ 
+                : expr ;
             this.exprStr = expr.join(' ');
             this.canonicalStr = this.canonicalExpr.join(' ');
             this.path = path;
