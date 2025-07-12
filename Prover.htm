@@ -3,17 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mathematical Proof Solver</title>
+    <title>Anthropic-Claude-Mathematical-Proof-Solver</title>
     <link rel='stylesheet' media='all' href='CSS\_.css'>
 </head>
 <body>
-    <h1>Mathematical Proof Solver</h1>
-    <div id="editor-container">
-      <div id="line-numbers"></div>
-      <textarea id="input" placeholder="Enter axioms and proof statement here" spellcheck="false"></textarea>
-    <button onclick="solveProblem()">Solve</button>
-    <textarea id="output" placeholder="Solution will appear here" spellcheck="false" class="output_style"></textarea>
-  </div>
+    <h2>Anthropic Claude Automated Proof System</h2>
+    <div class="container">
+        <div class="input-container">
+            <div id="line-numbers"></div>
+            <textarea id="input" placeholder="Enter axioms and proof statement..." spellcheck="false"></textarea>
+        </div>
+    </div>    
+    <div class="container">
+        <div class="input-container">
+            <textarea id="output" readonly placeholder="Proof output will appear here..."></textarea>
+        </div>
+    </div>
+    <button onclick="solveProblem()">Generate Proof</button>
+    <div id="stats" class="stats"></div>    
     <footer>
       <!-- engine scripts -->
       <script src="JS\_.js"></script>

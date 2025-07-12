@@ -1,0 +1,671 @@
+
+<note txt="partial-proof tracking"/>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Type-Instance Proof System</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .input-container {
+            position: relative;
+            flex: 1;
+        }
+        #line-numbers {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 30px;
+            padding: 10px 5px;
+            text-align: right;
+            color: #666;
+            background-color: #e0e0e0;
+            border: 1px solid #ccc;
+            border-right: none;
+            overflow: hidden;
+            user-select: none;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        textarea {
+            width: 100%;
+            height: 500px;
+            padding: 10px;
+            padding-left: 45px;
+            border: 1px solid #ccc;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            resize: vertical;
+        }
+        #output {
+            flex: 1;
+            background-color: #fff;
+            white-space: pre-wrap;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .stats {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e8f4f8;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .partial-proof {
+            color: #d9534f;
+            font-weight: bold;
+        }
+        .complete-proof {
+            color: #5cb85c;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Type-Instance Proof System</h1>
+    <div class="container">
+        <div class="input-container">
+            <div id="line-numbers"></div>
+            <textarea id="input" placeholder="Enter axioms and proof statement..."></textarea>
+        </div>
+        <textarea id="output" readonly placeholder="Proof output will appear here..."></textarea>
+    </div>
+    <button onclick="solveProblem()">Generate Proof</button>
+    <div id="stats" class="stats"></div>
+
+    <script>
+        let _input = document.getElementById('input');
+        let _output = document.getElementById('output');
+        let _lineNumbers = document.getElementById('line-numbers');
+        let _stats = document.getElementById('stats');
+
+        // Priority queue implementation for A* search
+        class PriorityQueue {
+            constructor() {
+                this.items = [];
+            }
+            
+            enqueue(element, priority) {
+                this.items.push({element, priority});
+                this.items.sort((a, b) => a.priority - b.priority);
+            }
+            
+            dequeue() {
+                return this.items.shift()?.element;
+            }
+            
+            isEmpty() {
+                return this.items.length === 0;
+            }
+            
+            size() {
+                return this.items.length;
+            }
+        }
+
+        // Type-aware token representation
+        class TypedToken {
+            constructor(value, types = []) {
+                this.value = value;
+                this.types = types; // Array of type annotations
+            }
+            
+            toString() {
+                if (this.types.length === 0) return this.value;
+                return `${this.value}:${this.types.join(':')}`;
+            }
+            
+            equals(other) {
+                if (!(other instanceof TypedToken)) return false;
+                return this.value === other.value && 
+                       this.types.length === other.types.length &&
+                       this.types.every((t, i) => t === other.types[i]);
+            }
+            
+            clone() {
+                return new TypedToken(this.value, [...this.types]);
+            }
+        }
+
+        function solveProblem() {
+            const { axioms, equivalences, proofStatement } = parseInput(_input.value);
+            const startTime = performance.now();
+            const result = generateProofWithTypes(axioms, equivalences, proofStatement);
+            const endTime = performance.now();
+            
+            _output.value = result.proof;
+            _output.value += `\n\nTotal runtime: ${(endTime - startTime).toFixed(4)} Milliseconds`;
+            
+            // Display statistics
+            const isPartial = result.proof.includes('Partial');
+            _stats.innerHTML = `
+                <strong>Search Statistics:</strong><br>
+                States explored: ${result.stats.statesExplored}<br>
+                Unique states: ${result.stats.uniqueStates}<br>
+                Equivalence rewrites: ${result.stats.equivalenceRewrites}<br>
+                Regular rewrites: ${result.stats.regularRewrites}<br>
+                Search depth: ${result.stats.maxDepth}<br>
+                Strategy: ${result.stats.strategy}<br>
+                ${result.stats.hitSearchLimit ? '<span style="color: orange">Hit search limit (10k iterations)</span><br>' : ''}
+                <span class="${isPartial ? 'partial-proof' : 'complete-proof'}">
+                    ${isPartial ? '⚠️ Partial proof - search space exhausted' : '✓ Complete proof found!'}
+                </span>
+            `;
+        }
+
+        function parseTypedToken(tokenStr) {
+            const parts = tokenStr.split(':');
+            if (parts.length === 1) {
+                return new TypedToken(parts[0]);
+            }
+            return new TypedToken(parts[0], parts.slice(1));
+        }
+
+        function parseTypedExpression(expr) {
+            return expr.trim().split(/\s+/).map(parseTypedToken);
+        }
+
+        function parseInput(input) {
+            let lines = input
+                .split('\n')
+                .filter(line => line.trim() && !line.startsWith('//'));
+            
+            let axioms = [];
+            let equivalences = [];
+            let proofStatement = null;
+            let axiomCounter = 1;
+            let equivCounter = 1;
+
+            lines.forEach((line, lineIndex) => {
+                // Check if it's an equivalence rule
+                if (line.includes('<==>')) {
+                    const parts = line.split(/\s*<==>\s*/);
+                    // Handle chain of equivalences
+                    for (let i = 0; i < parts.length - 1; i++) {
+                        equivalences.push({
+                            left: parseTypedExpression(parts[i]),
+                            right: parseTypedExpression(parts[i + 1]),
+                            axiomID: `equiv_${equivCounter++}`,
+                            lineIndex
+                        });
+                        // Add reverse direction
+                        equivalences.push({
+                            left: parseTypedExpression(parts[i + 1]),
+                            right: parseTypedExpression(parts[i]),
+                            axiomID: `equiv_${equivCounter - 1}_rev`,
+                            lineIndex
+                        });
+                    }
+                } else {
+                    // Regular axiom or proof statement
+                    const parts = line.split(/\s*=\s*/);
+                    if (parts.length === 2) {
+                        const axiom = {
+                            subnets: [
+                                parseTypedExpression(parts[0]),
+                                parseTypedExpression(parts[1])
+                            ],
+                            axiomID: `axiom_${axiomCounter++}.0`,
+                            lineIndex
+                        };
+                        axioms.push(axiom);
+                    }
+                }
+            });
+
+            // Last axiom is the proof statement
+            proofStatement = axioms.pop();
+
+            return { axioms, equivalences, proofStatement };
+        }
+
+        function generateProofWithTypes(axioms, equivalences, proofStatement) {
+            const [lhs, rhs] = proofStatement.subnets;
+            const lhsStr = expressionToString(lhs);
+            const rhsStr = expressionToString(rhs);
+            
+            // Statistics tracking
+            const stats = {
+                statesExplored: 0,
+                uniqueStates: 0,
+                equivalenceRewrites: 0,
+                regularRewrites: 0,
+                maxDepth: 0,
+                hitSearchLimit: false,
+                strategy: 'A* with type-aware heuristic'
+            };
+
+            // Partial proof tracking
+            let bestLHSPath = null;
+            let bestRHSPath = null;
+            let nearestDistance = Infinity;
+            let nearestLHS = null;
+            let nearestRHS = null;
+            
+            // Calculate initial distance
+            const initialDistance = heuristic(lhsStr, rhsStr);
+            if (initialDistance < nearestDistance) {
+                nearestDistance = initialDistance;
+                nearestLHS = lhsStart;
+                nearestRHS = rhsStart;
+            }
+
+            // If already equal, return immediately
+            if (lhsStr === rhsStr) {
+                return {
+                    proof: "Proof Found!\n\n" + lhsStr + " = " + rhsStr + ", trivial\n\nQ.E.D.",
+                    stats
+                };
+            }
+
+            // Enhanced heuristic function for typed expressions
+            function heuristic(expr1Str, expr2Str) {
+                const arr1 = expr1Str.split(' ');
+                const arr2 = expr2Str.split(' ');
+                
+                let h = 0;
+                
+                // Length difference
+                h += Math.abs(arr1.length - arr2.length) * 2;
+                
+                // Token difference (considering types)
+                const tokens1 = new Set(arr1);
+                const tokens2 = new Set(arr2);
+                const common = new Set([...tokens1].filter(x => tokens2.has(x)));
+                h += (tokens1.size + tokens2.size - 2 * common.size);
+                
+                // Type mismatches
+                const typedTokens1 = parseTypedExpression(expr1Str);
+                const typedTokens2 = parseTypedExpression(expr2Str);
+                for (let i = 0; i < Math.min(typedTokens1.length, typedTokens2.length); i++) {
+                    if (typedTokens1[i].value === typedTokens2[i].value) {
+                        // Same value but different types
+                        const typeDiff = Math.abs(typedTokens1[i].types.length - typedTokens2[i].types.length);
+                        h += typeDiff * 0.5;
+                    }
+                }
+                
+                return h;
+            }
+
+            // Search state with typed expressions
+            class SearchState {
+                constructor(expr, path, side, depth = 0) {
+                    this.expr = expr;
+                    this.exprStr = expressionToString(expr);
+                    this.path = path;
+                    this.side = side;
+                    this.depth = depth;
+                }
+                
+                getPriority(targetStr) {
+                    const g = this.depth;
+                    const h = heuristic(this.exprStr, targetStr);
+                    return g + h;
+                }
+            }
+
+            // Bidirectional A* search
+            const lhsQueue = new PriorityQueue();
+            const rhsQueue = new PriorityQueue();
+            const lhsVisited = new Map();
+            const rhsVisited = new Map();
+            
+            // Initialize
+            const lhsStart = new SearchState(lhs, [{expr: lhs, rule: 'root'}], 'lhs');
+            const rhsStart = new SearchState(rhs, [{expr: rhs, rule: 'root'}], 'rhs');
+            
+            lhsQueue.enqueue(lhsStart, lhsStart.getPriority(rhsStr));
+            rhsQueue.enqueue(rhsStart, rhsStart.getPriority(lhsStr));
+            lhsVisited.set(lhsStr, lhsStart);
+            rhsVisited.set(rhsStr, rhsStart);
+
+            // Generate all possible rewrites
+            function* generateAllRewrites(expr, axiomList, equivList) {
+                // Regular axiom rewrites
+                for (const axiom of axiomList) {
+                    for (const [from, to, direction] of [
+                        [axiom.subnets[0], axiom.subnets[1], 'forward'],
+                        [axiom.subnets[1], axiom.subnets[0], 'backward']
+                    ]) {
+                        const results = [
+                            tryTypedReplace(expr, from, to, 'first'),
+                            tryTypedReplace(expr, from, to, 'all')
+                        ];
+                        
+                        for (const result of results) {
+                            if (result) {
+                                stats.regularRewrites++;
+                                yield {
+                                    expr: result,
+                                    axiom: axiom.axiomID,
+                                    direction: direction
+                                };
+                            }
+                        }
+                    }
+                }
+                
+                // Equivalence rewrites
+                for (const equiv of equivList) {
+                    const result = tryEquivalenceRewrite(expr, equiv);
+                    if (result) {
+                        stats.equivalenceRewrites++;
+                        yield {
+                            expr: result,
+                            axiom: equiv.axiomID,
+                            direction: 'rewrite'
+                        };
+                    }
+                }
+            }
+
+            // Main search loop
+            let iterations = 0;
+            const maxIterations = 10000;
+            
+            while (!lhsQueue.isEmpty() || !rhsQueue.isEmpty()) {
+                if (iterations++ > maxIterations) {
+                    stats.hitSearchLimit = true;
+                    break;
+                }
+                
+                // Alternate between queues
+                for (const [queue, visited, otherVisited, side, targetStr] of [
+                    [lhsQueue, lhsVisited, rhsVisited, 'lhs', rhsStr],
+                    [rhsQueue, rhsVisited, lhsVisited, 'rhs', lhsStr]
+                ]) {
+                    if (queue.isEmpty()) continue;
+                    
+                    const current = queue.dequeue();
+                    if (!current) continue;
+                    
+                    stats.statesExplored++;
+                    stats.maxDepth = Math.max(stats.maxDepth, current.depth);
+                    
+                    // Track best paths for partial proofs
+                    if (side === 'lhs' && (!bestLHSPath || current.depth > bestLHSPath.depth)) {
+                        bestLHSPath = current;
+                    } else if (side === 'rhs' && (!bestRHSPath || current.depth > bestRHSPath.depth)) {
+                        bestRHSPath = current;
+                    }
+                    
+                    // Check distance to other side's states for nearest miss
+                    const otherMap = side === 'lhs' ? rhsVisited : lhsVisited;
+                    for (const [otherExpr, otherState] of otherMap) {
+                        const distance = heuristic(current.exprStr, otherExpr);
+                        if (distance < nearestDistance) {
+                            nearestDistance = distance;
+                            if (side === 'lhs') {
+                                nearestLHS = current;
+                                nearestRHS = otherState;
+                            } else {
+                                nearestLHS = otherState;
+                                nearestRHS = current;
+                            }
+                        }
+                    }
+                    
+                    // Check if we've met in the middle
+                    if (otherVisited.has(current.exprStr)) {
+                        const otherState = otherVisited.get(current.exprStr);
+                        return {
+                            proof: constructTypedProof(current, otherState),
+                            stats
+                        };
+                    }
+                    
+                    // Generate and explore neighbors
+                    for (const rewrite of generateAllRewrites(current.expr, axioms, equivalences)) {
+                        const newExprStr = expressionToString(rewrite.expr);
+                        
+                        if (visited.has(newExprStr) && 
+                            visited.get(newExprStr).depth <= current.depth + 1) {
+                            continue;
+                        }
+                        
+                        const newState = new SearchState(
+                            rewrite.expr,
+                            [...current.path, {
+                                expr: rewrite.expr,
+                                rule: `${rewrite.axiom} (${rewrite.direction})`
+                            }],
+                            side,
+                            current.depth + 1
+                        );
+                        
+                        visited.set(newExprStr, newState);
+                        queue.enqueue(newState, newState.getPriority(targetStr));
+                        stats.uniqueStates = visited.size + otherVisited.size;
+                        
+                        // Check if this new state is closer to any state on the other side
+                        for (const [otherExpr, otherState] of otherVisited) {
+                            const distance = heuristic(newExprStr, otherExpr);
+                            if (distance < nearestDistance) {
+                                nearestDistance = distance;
+                                if (side === 'lhs') {
+                                    nearestLHS = newState;
+                                    nearestRHS = otherState;
+                                } else {
+                                    nearestLHS = otherState;
+                                    nearestRHS = newState;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // No complete proof found - return partial proof
+            const partialProof = constructPartialProof(
+                nearestLHS || bestLHSPath || lhsStart,
+                nearestRHS || bestRHSPath || rhsStart,
+                nearestDistance
+            );
+            
+            return {
+                proof: partialProof,
+                stats
+            };
+        }
+
+        // Helper functions for typed expressions
+        function expressionToString(expr) {
+            return expr.map(token => token.toString()).join(' ');
+        }
+
+        function tryTypedReplace(expr, from, to, method) {
+            if (from.length > expr.length) return false;
+            
+            if (method === 'first') {
+                // First occurrence
+                for (let i = 0; i <= expr.length - from.length; i++) {
+                    let match = true;
+                    for (let j = 0; j < from.length; j++) {
+                        if (!expr[i + j].equals(from[j])) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) {
+                        const result = [
+                            ...expr.slice(0, i).map(t => t.clone()),
+                            ...to.map(t => t.clone()),
+                            ...expr.slice(i + from.length).map(t => t.clone())
+                        ];
+                        return result;
+                    }
+                }
+            } else if (method === 'all') {
+                // All occurrences
+                let result = expr.map(t => t.clone());
+                let changed = false;
+                
+                for (let i = expr.length - from.length; i >= 0; i--) {
+                    let match = true;
+                    for (let j = 0; j < from.length; j++) {
+                        if (!result[i + j].equals(from[j])) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) {
+                        result.splice(i, from.length, ...to.map(t => t.clone()));
+                        changed = true;
+                    }
+                }
+                
+                return changed ? result : false;
+            }
+            
+            return false;
+        }
+
+        function tryEquivalenceRewrite(expr, equiv) {
+            // Try to find and replace single tokens based on equivalence
+            for (let i = 0; i < expr.length; i++) {
+                if (equiv.left.length === 1 && equiv.right.length === 1) {
+                    const leftToken = equiv.left[0];
+                    const rightToken = equiv.right[0];
+                    
+                    if (expr[i].value === leftToken.value) {
+                        // Found a match, create new expression with type replacement
+                        const result = expr.map((t, idx) => {
+                            if (idx === i) {
+                                return new TypedToken(rightToken.value, rightToken.types);
+                            }
+                            return t.clone();
+                        });
+                        return result;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function constructTypedProof(lhsState, rhsState) {
+            let proof = "Proof Found!\n\n";
+            
+            // Determine meeting point
+            const meetingPoint = lhsState.side === 'lhs' ? 
+                rhsState.path[0].expr : lhsState.path[0].expr;
+            const meetingStr = expressionToString(meetingPoint);
+            
+            // LHS transformations
+            for (let i = 0; i < lhsState.path.length; i++) {
+                const step = lhsState.path[i];
+                proof += `${expressionToString(step.expr)} = ${meetingStr}`;
+                if (i > 0) {
+                    proof += `, ${step.rule}`;
+                }
+                proof += '\n';
+            }
+            
+            // RHS transformations (if from different side)
+            if (lhsState.side !== rhsState.side) {
+                for (let i = 1; i < rhsState.path.length; i++) {
+                    const step = rhsState.path[i];
+                    const lhsEndStr = expressionToString(lhsState.path[lhsState.path.length - 1].expr);
+                    proof += `${lhsEndStr} = ${expressionToString(step.expr)}`;
+                    proof += `, ${step.rule}\n`;
+                }
+            }
+            
+            proof += "\nQ.E.D.";
+            return proof;
+        }
+        
+        function constructPartialProof(lhsState, rhsState, distance) {
+            let proof = "Partial Proof Found!\n";
+            proof += `(Nearest states have distance: ${distance.toFixed(2)})\n\n`;
+            
+            const lhsFinal = lhsState.path[lhsState.path.length - 1].expr;
+            const rhsFinal = rhsState.path[rhsState.path.length - 1].expr;
+            const lhsFinalStr = expressionToString(lhsFinal);
+            const rhsFinalStr = expressionToString(rhsFinal);
+            
+            // Show proof attempts from both sides
+            proof += "=== LEFT SIDE DERIVATION ===\n";
+            for (let i = 0; i < lhsState.path.length; i++) {
+                const step = lhsState.path[i];
+                proof += `${expressionToString(step.expr)} = ${rhsFinalStr}`;
+                if (i === 0) {
+                    proof += `, ${step.rule}`;
+                } else {
+                    proof += `, ${step.rule}`;
+                }
+                proof += '\n';
+            }
+            
+            proof += "\n=== RIGHT SIDE DERIVATION ===\n";
+            for (let i = 0; i < rhsState.path.length; i++) {
+                const step = rhsState.path[i];
+                proof += `${lhsFinalStr} = ${expressionToString(step.expr)}`;
+                if (i === 0) {
+                    proof += `, ${step.rule}`;
+                } else {
+                    proof += `, ${step.rule}`;
+                }
+                proof += '\n';
+            }
+            
+            proof += `\n⚠️ Cannot connect: ${lhsFinalStr} ≠ ${rhsFinalStr}\n`;
+            proof += `Missing transformations would require ${Math.ceil(distance)} more steps (estimated).\n`;
+            proof += "\nSuggestion: Add more axioms or check for typos in expressions.";
+            
+            return proof;
+        }
+
+        // UI functions
+        function updateLineNumbers() {
+            const lines = _input.value.split('\n');
+            let i = 1;
+            _lineNumbers.innerHTML = lines
+                .map(u => /^[^\/\t\s\n]+/.test(u) ? i++ : '')
+                .join('<br>');
+        }
+
+        _input.addEventListener('keyup', updateLineNumbers);
+        _input.addEventListener('scroll', function() {
+            _lineNumbers.scrollTop = this.scrollTop;
+        });
+
+        // Initialize with type example
+        _input.value = `// Axioms 
+1:integer:number + 1:integer:number = 2:integer:number 
+2.0:rational:number + 2:integer:number = 4:integer:number 
+2.0:rational <==> 2:integer
+1.0:rational <==> 1:integer 
+
+// Theorem to Prove 
+1:integer:number + 1:integer:number + 1:integer:number + 1:integer:number = 4:integer:number
+
+// For partial proof demo, try this instead:
+// 1:integer + 1:integer + 1:integer = 3:integer
+// (Missing axiom: what equals 3?)`;
+
+        updateLineNumbers();
+    </script>
+</body>
+</html>

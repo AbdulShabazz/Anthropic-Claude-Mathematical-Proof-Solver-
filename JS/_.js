@@ -1,473 +1,669 @@
+let _input = document.getElementById('input');
+let _output = document.getElementById('output');
+let _lineNumbers = document.getElementById('line-numbers');
+let _stats = document.getElementById('stats');
 
-try {
-
-    /** Benchmark 25ms (test case 246) */
-
-    let _input = document.getElementById ('input');
-    let _output = document.getElementById ('output');
-    let _lineNumbers = document.getElementById ('line-numbers');
-
-    function solveProblem () {
-        const { axioms, proofStatement } = parseInput (_input.value);
-        const startTime = performance.now ();
-        _output.value = generateProof (axioms, proofStatement);
-        _output.value += `\n\nTotal runtime: ${ (performance.now ()-startTime).toFixed(4) } Milliseconds`;
-    } // end solveProblem
-
-    function parseInput (input) {
-        let lines = input
-            .split ('\n')
-                .filter (line => line.trim () && !line.startsWith ('//'));
-        let axiomsSet = new Set ();
-
-        lines
-            .slice ()
-                .forEach ((line,k,thisArray) => {
-                    const parts = line
-                        .split (/[~<]?=+[>]?/g)
-                            .map (s => s.trim ());
-                    parts.forEach ((part, i) => {
-                        parts.slice (i + 1).forEach ((otherPart, j, me) => {
-                            axiomsSet.add ({ subnets: `${part} = ${otherPart}`, axiomID: `axiom_${k+1}.0` , guidZ: k });
-                        });
-                    });
-                });
-
-        const sortedAxioms = Array.from (axiomsSet)
-            .map (axiom => {
-                axiom.subnets = axiom.subnets
-                    .split (' = ')
-                        .sort ((a, b) => a.length <= b.length)
-                            .map ((pair,i,me) => {
-                                return pair.match (/\S+/g);
-                            });
-                return axiom;
-            });
-
-        const proofStatement = sortedAxioms [sortedAxioms.length - 1];
-
-        return {
-            axioms: sortedAxioms,
-            proofStatement: proofStatement
-        };
-
-    } // end parseInput
-
-    function generateProof (all_axioms, proofStatement) {
-        let [lhs, rhs] = proofStatement.subnets;
-
-        let LHS_PartialProofStack = [];
-        let RHS_PartialProofStack = [];
-
-        class CommitEntryCl {
-            constructor({ gIDW = '', commit = [] }={}) {
-                this.gIDW = gIDW;
-                this.commit = commit;
-            }
-        } // end CommitEntryCl
-
-        const proofFound = (() => {
-
-            // Use core axioms only //
-            let axioms = [...all_axioms];
-            axioms.pop();
-
-            let reduce_lhs_queue = [[...lhs]];
-            let reduce_rhs_queue = [[...rhs]];
-            let expand_lhs_queue = [[...lhs]];
-            let expand_rhs_queue = [[...rhs]];
-            let reduce_lhs_commit_history_map = new Map();
-            let reduce_rhs_commit_history_map = new Map();
-            let expand_lhs_commit_history_map = new Map();
-            let expand_rhs_commit_history_map = new Map();
-            let proofFoundFlag = (lhs.join (' ') == rhs.join (' '));
-            
-            // local scope to prevent naming collisions
-            let wVal;
-            let xVal;
-            let yVal;
-            let zVal;
-
-            const ww = reduceLHS(axioms);
-            const xx = reduceRHS(axioms);
-            const yy = expandLHS(axioms);
-            const zz = expandRHS(axioms);
-
-            do {
-                if (proofFoundFlag) break;
-
-                // Advance each iterator and capture its .value
-                wVal = ww?.next()?.value;
-                xVal = xx?.next()?.value;
-                yVal = yy?.next()?.value;
-                zVal = zz?.next()?.value;
-
-                // If all are 0 or NaN or undefined, we should stop.
-                // Otherwise, keep looping.
-            } while (!allComplete(wVal, xVal, yVal, zVal));
-
-            return proofFoundFlag;
-
-            function allComplete(...vals) {
-                for (let val of vals) {
-                    if (val == 1)
-                        return false;
-                }
-                return true;
-            } // end allComplete
-
-            function* reduceLHS(_axioms_) {
-                while (1) {
-                    if (proofFoundFlag || reduce_lhs_queue.length < 1)
-                        return 0;
-                    const _lhs_ = reduce_lhs_queue.shift();
-                    for (let axiom of _axioms_) {
-                        let tmp = [..._lhs_];
-                        const curr_rewrite = `${_lhs_.join(' ')}`;                     
-                        if (!reduce_lhs_commit_history_map.has(curr_rewrite)) {
-                            reduce_lhs_commit_history_map
-                                .set(curr_rewrite, {
-                                        alreadyReducedSet:new Set(),
-                                        commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
-                                    }
-                                );
-                        }
-                        const from = [...axiom.subnets[0]];
-                        const to = [...axiom.subnets[1]];
-                        const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
-                            reduce_lhs_queue.push([...rewriteFoundFlag]);
-                            const new_rewrite = rewriteFoundFlag.join(' ');
-                            const commitHistory = [
-                                ...reduce_lhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:`lhs reduce via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
-                            ];
-                            let _alreadyReducedSet_ = new Set([ ...reduce_lhs_commit_history_map.get(curr_rewrite).alreadyReducedSet, axiom.axiomID ]);
-                            reduce_lhs_commit_history_map.set(new_rewrite, {
-                                alreadyReducedSet:_alreadyReducedSet_,
-                                commitHistory:commitHistory
-                            });
-                            if (commitHistory.length > LHS_PartialProofStack.length) {
-                                LHS_PartialProofStack = commitHistory;
-                            }
-                            const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
-                                || expand_rhs_commit_history_map.has(new_rewrite));
-                            if (_ProofFoundFlag_)  {
-                                // Capture the LHS commit history once.
-                                const lhsCommits = reduce_lhs_commit_history_map.get(new_rewrite).commitHistory;
-
-                                // Determine which RHS map to use.
-                                const rhsMap = reduce_rhs_commit_history_map.has(new_rewrite)
-                                    ? reduce_rhs_commit_history_map
-                                    : expand_rhs_commit_history_map ;
-
-                                // Set the proofFoundFlag from both sides.
-                                proofFoundFlag = [
-                                    [...lhsCommits],
-                                    [...rhsMap.get(new_rewrite).commitHistory]
-                                ];
-                                
-                            } // end if (_ProofFoundFlag_)
-                            yield 1;
-                        } // end if (rewriteFoundFlag)
-                    } // end for (let axiom of _axioms)
-                } // end while (1)
-            } // end reduceLHS
-
-            function* reduceRHS(_axioms_) {
-                while (1) {
-                    if (proofFoundFlag || reduce_rhs_queue.length < 1)
-                        return 0;
-                    const _rhs_ = reduce_rhs_queue.shift();
-                    for (let axiom of _axioms_) {
-                        let tmp = [..._rhs_];
-                        const curr_rewrite = `${_rhs_.join(' ')}`;
-                        if (!reduce_rhs_commit_history_map.has(curr_rewrite)) {
-                            reduce_rhs_commit_history_map
-                                .set(curr_rewrite, {
-                                        alreadyReducedSet:new Set(),
-                                        commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
-                                    }
-                                );
-                        }
-                        const from = [...axiom.subnets[0]];
-                        const to = [...axiom.subnets[1]];
-                        const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
-                            reduce_rhs_queue.push([...rewriteFoundFlag]);
-                            const new_rewrite = rewriteFoundFlag.join(' ');
-                            const commitHistory = [
-                                ...reduce_rhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:`rhs reduce via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
-                            ];
-                            let _alreadyReducedSet_ = new Set([ ...reduce_rhs_commit_history_map.get(curr_rewrite).alreadyReducedSet, axiom.axiomID ]);
-                            reduce_rhs_commit_history_map.set(new_rewrite, {
-                                alreadyReducedSet:_alreadyReducedSet_,
-                                commitHistory:commitHistory
-                            });
-                            if (commitHistory.length > RHS_PartialProofStack.length) {
-                                RHS_PartialProofStack = commitHistory;
-                            }
-                            const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
-                                || expand_lhs_commit_history_map.has(new_rewrite));
-                            if (_ProofFoundFlag_) {
-                                // Capture the RHS commit history once.
-                                const rhsCommits = reduce_rhs_commit_history_map.get(new_rewrite).commitHistory;
-
-                                // Determine which LHS map to use.
-                                const lhsMap = reduce_lhs_commit_history_map.has(new_rewrite)
-                                    ? reduce_lhs_commit_history_map
-                                    : expand_lhs_commit_history_map ;
-
-                                // Set the proofFoundFlag from both sides.
-                                proofFoundFlag = [
-                                    [...lhsMap.get(new_rewrite).commitHistory],
-                                    [...rhsCommits]
-                                ];
-                                
-                            } // end if (_ProofFoundFlag_)
-                            yield 1;
-                        } // end if (rewriteFoundFlag)
-                    } // end for (let axiom of _axioms)
-                } // end while (1)
-            } // end reduceRHS
-
-            function* expandLHS(_axioms_) {
-                while (1) {
-                    if (proofFoundFlag || expand_lhs_queue.length < 1)
-                        return 0;
-                    const _lhs_ = expand_lhs_queue.shift();
-                    for (let axiom of _axioms_) {
-                        let tmp = [..._lhs_];
-                        const curr_rewrite = `${_lhs_.join(' ')}`;
-                        if (!expand_lhs_commit_history_map.has(curr_rewrite)) {
-                            expand_lhs_commit_history_map
-                                .set(curr_rewrite, {
-                                    alreadyExpandedSet:new Set(),
-                                        commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
-                                    }
-                                );
-                        }
-                        const from = [...axiom.subnets[1]];
-                        const to = [...axiom.subnets[0]];
-                        const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
-                            expand_lhs_queue.push([...rewriteFoundFlag]);
-                            const new_rewrite = rewriteFoundFlag.join(' ');
-                            const commitHistory = [
-                                ...expand_lhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:`lhs expand via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
-                            ];
-                            let _alreadyExpandedSet_ = new Set([ ...expand_lhs_commit_history_map.get(curr_rewrite).alreadyExpandedSet, axiom.axiomID ]);
-                            expand_lhs_commit_history_map.set(new_rewrite, {
-                                alreadyExpandedSet:_alreadyExpandedSet_,
-                                commitHistory:commitHistory
-                            });
-                            if (commitHistory.length > LHS_PartialProofStack.length) {
-                                LHS_PartialProofStack = commitHistory;
-                            }
-                            const _ProofFoundFlag_ = (reduce_rhs_commit_history_map.has(new_rewrite)
-                                || expand_rhs_commit_history_map.has(new_rewrite));
-                            if (_ProofFoundFlag_) {
-                                // Capture the LHS commit history once.
-                                const lhsCommits = expand_lhs_commit_history_map.get(new_rewrite).commitHistory;
-
-                                // Determine which RHS map to use.
-                                const rhsMap = reduce_rhs_commit_history_map.has(new_rewrite)
-                                    ? reduce_rhs_commit_history_map
-                                    : expand_rhs_commit_history_map ;
-
-                                // Set the proofFoundFlag from both sides.
-                                proofFoundFlag = [
-                                    [...lhsCommits],
-                                    [...rhsMap.get(new_rewrite).commitHistory]
-                                ];
-                                
-                            } // end if (_ProofFoundFlag_)
-                            yield 1;
-                        } // end if (rewriteFoundFlag)
-                    } // end for (let axiom of _axioms)
-                } // end while (1)
-            } // end expandLHS
-
-            function* expandRHS(_axioms_) {
-                while (1) {
-                    if (proofFoundFlag || expand_rhs_queue.length < 1)
-                        return 0;
-                    const _rhs_ = expand_rhs_queue.shift();
-                    for (let axiom of _axioms_) {
-                        let tmp = [..._rhs_];
-                        const curr_rewrite = `${_rhs_.join(' ')}`;
-                        if (!expand_rhs_commit_history_map.has(curr_rewrite)) {
-                            expand_rhs_commit_history_map
-                                .set(curr_rewrite, {
-                                        alreadyExpandedSet:new Set(),
-                                        commitHistory:[ new CommitEntryCl({ gIDW:'root', commit:[...tmp] }) ]
-                                    }
-                                );
-                        }
-                        const from = [...axiom.subnets[1]];
-                        const to = [...axiom.subnets[0]];
-                        const rewriteFoundFlag = tmp._tryReplace(from,to);
-                        if (rewriteFoundFlag) {
-                            expand_rhs_queue.push([...rewriteFoundFlag]);
-                            const new_rewrite = rewriteFoundFlag.join(' ');
-                            const commitHistory = [
-                                ...expand_rhs_commit_history_map.get(curr_rewrite).commitHistory,
-                                new CommitEntryCl({ gIDW:`rhs expand via ${axiom.axiomID}`, commit:[...rewriteFoundFlag] })
-                            ];
-                            let _alreadyExpandedSet_ = new Set([ ...expand_rhs_commit_history_map.get(curr_rewrite).alreadyExpandedSet, axiom.axiomID ]);
-                            expand_rhs_commit_history_map.set(new_rewrite, {
-                                alreadyExpandedSet:_alreadyExpandedSet_,
-                                commitHistory:commitHistory
-                            });
-                            if (commitHistory.length > RHS_PartialProofStack.length) {
-                                RHS_PartialProofStack = commitHistory;
-                            }
-                            const _ProofFoundFlag_ = (reduce_lhs_commit_history_map.has(new_rewrite)
-                                || expand_lhs_commit_history_map.has(new_rewrite));
-                            if (_ProofFoundFlag_) {
-                                // Capture the RHS commit history once.
-                                const rhsCommits = expand_rhs_commit_history_map.get(new_rewrite).commitHistory;
-
-                                // Determine which LHS map to use.
-                                const lhsMap = reduce_lhs_commit_history_map.has(new_rewrite)
-                                    ? reduce_lhs_commit_history_map
-                                    : expand_lhs_commit_history_map ;
-
-                                // Set the proofFoundFlag from both sides.
-                                proofFoundFlag = [
-                                    [...lhsMap.get(new_rewrite).commitHistory],
-                                    [...rhsCommits]
-                                ];
-                                
-                            } // end if (_ProofFoundFlag_)
-                            yield 1; 
-                        } // end if (rewriteFoundFlag)
-                    } // end for (let axiom of _axioms)
-                } // end whiile (1)
-            } // end expandRHS
-            
-        })(); // end proofFound (inline) func
-
-        if  (
-                !proofFound 
-                && LHS_PartialProofStack.length < 1 
-                && RHS_PartialProofStack.length < 1
-            )
-        {
-            return `No proof found.`;
-        }
-        else {
-            const lambda_func = (u) => {
-                let W = '';
-                const _lhs_ = u[0]?.length ? u[0] : [new CommitEntryCl({ gIDW:'root', commit:lhs })] ;
-                const _rhs_ = u[1]?.length ? u[1] : [new CommitEntryCl({ gIDW:'root', commit:rhs })] ;
-                const _lhs_I = u[0].length;
-                const _rhs_I = u[1].length;
-                const x = `${ _lhs_[ (_lhs_I-1) ].commit.join(' ') }`;
-                const y = `${ _rhs_[0].commit.join(' ') }`;
-                for (let i = 0; i < _lhs_I; ++i) {
-                    const w = `${ _lhs_[i].commit.join(' ') }`;
-                    const detailsW = `, ${ _lhs_[i].gIDW }`;
-                    W += `${ w } = ${ y }${ detailsW }\n`;
-                } // end for (let i = 0; i < _lhs_I; ++i) {
-                for (let i = 1; i < _rhs_I; ++i) {
-                    const w = `${ _rhs_[i].commit.join(' ') }`;
-                    const detailsW = `, ${ _rhs_[i].gIDW }`;
-                    W += `${ x } = ${ w }${ detailsW }\n`;
-                } // end for (let i = 0; i < _rhs_I; ++i) {
-                return W; 
-            } // end lambda_func
-            return `${( !proofFound ? 'Partial-' : '')}Proof Found!\n\n${ lambda_func(proofFound ? proofFound : [LHS_PartialProofStack, RHS_PartialProofStack]) }${( proofFound ? '\nQ.E.D.' : '' )}`;
-        } // end if (!proofFound)
-
-    } // end generateProof
-     
-    Array.prototype._tryReplace = function(from, to) {
-        if (from.length > this.length)
-          return false;
-      
-        class keyCL {
-          constructor({ series=0, tok='' }={}) {
-            this.series = series;
-            this.tok = tok;
-          }
-        } // end class
-        
-        let i = 0;
-        let series = 1;
-        let replaceSeriesSet = new Set();
-        const I = from.length;
-        const J = this.length;
-        const rewriteSZArray = [];
-        let rewriteFoundFlag = false;
-      
-        for (let j = 0; j < J; ++j) {
-            let _series_ = 0;    
-            const tok = this[j];
-            if (from[i] == tok) {
-                _series_ = series;
-                if (++i == I) {
-                    i = 0;
-                    rewriteFoundFlag = true;
-                    replaceSeriesSet.add(series++);
-                } // end if (++i == I)
-            } // end if (from[i] == tok)
-            rewriteSZArray.push(new keyCL({ series:_series_, tok:tok }) );
-        }
-        
-        let ret = false;
-        if (rewriteFoundFlag) {
-          ret = [];
-          let lastSeries = 0;
-          for (let o of rewriteSZArray) {
-            if (replaceSeriesSet.has (o.series)) {
-              if (o.series != lastSeries){
-                lastSeries = o.series;
-                ret.push(...to);
-              }
-            }
-            else {
-              ret.push (o.tok);
-            }
-          }    
-        }
-        
-        return ret;
-    } // end Object.prototype._tryReplace
-
-    function updateLineNumbers () {
-        const lines = _input.value.split ('\n');
-        let i = 1;
-        _lineNumbers.innerHTML = lines
-            .map ((u, index) => /^[^\/\t\s\n]+/.test (u) ? i++ : '')
-                .join ('<br>');
-    } // end updateLineNumbers
-
-    _input.addEventListener ('keyup', function () {
-        updateLineNumbers ();
-    });
-
-    _input.addEventListener ('scroll', function () {
-        _lineNumbers.scrollTop = this.scrollTop;
-    });
-
-    updateLineNumbers ();
-
-} catch (e) {
-    output.value = JSON.stringify (e, ' ', 2);
+const _searchStrategy = { 
+    option : {
+        _astar: { config: 'a*', description:'A* with heuristic.' },
+        _greedy: { config: 'greedy', description:'BFS (Greedy) - only use heuristic (h), not depth (g).' },
+        _adaptive: { config: 'adaptive', description:'Adaptive combination of BFS (Greedy) with A* for higher iterations.' },
+    }
 }
 
-input.value = input.value
-? input.value :
-`// Axioms and Lemmas
+const _currentSearchStrategy = _searchStrategy.option._astar; // _astar,_greedy,_adaptive //
+const _canonicalFormFlag = false; // fast! Only finds approximate solutions.
+
+// Binary Heap implementation for O(log n) operations
+class BinaryHeap {
+    constructor(compareFn) {
+        this.items = [];
+        this.compare = compareFn || ((a, b) => a.priority - b.priority);
+    }
+    
+    enqueue(element, priority) {
+        this.items.push({element, priority});
+        this._bubbleUp(this.items.length - 1);
+    }
+    
+    dequeue() {
+        if (this.isEmpty()) return undefined;
+        
+        const result = this.items[0];
+        const end = this.items.pop();
+        
+        if (this.items.length > 0) {
+            this.items[0] = end;
+            this._bubbleDown(0);
+        }
+        
+        return result?.element;
+    }
+    
+    isEmpty() {
+        return this.items.length === 0;
+    }
+    
+    size() {
+        return this.items.length;
+    }
+    
+    _bubbleUp(idx) {
+        const element = this.items[idx];
+        
+        while (idx > 0) {
+            const parentIdx = Math.floor((idx - 1) / 2);
+            const parent = this.items[parentIdx];
+            
+            if (this.compare(element, parent) >= 0) break;
+            
+            this.items[idx] = parent;
+            idx = parentIdx;
+        }
+        
+        this.items[idx] = element;
+    }
+    
+    _bubbleDown(idx) {
+        const element = this.items[idx];
+        const length = this.items.length;
+        
+        while (true) {
+            const leftChildIdx = 2 * idx + 1;
+            const rightChildIdx = 2 * idx + 2;
+            let swap = -1;
+            
+            if (leftChildIdx < length) {
+                const leftChild = this.items[leftChildIdx];
+                if (this.compare(leftChild, element) < 0) {
+                    swap = leftChildIdx;
+                }
+            }
+            
+            if (rightChildIdx < length) {
+                const rightChild = this.items[rightChildIdx];
+                if (this.compare(rightChild, element) < 0 && 
+                    this.compare(rightChild, this.items[leftChildIdx]) < 0) {
+                    swap = rightChildIdx;
+                }
+            }
+            
+            if (swap === -1) break;
+            
+            this.items[idx] = this.items[swap];
+            idx = swap;
+        }
+        
+        this.items[idx] = element;
+    }
+}
+
+// Token index for fast axiom matching
+class AxiomIndex {
+    constructor() {
+        this.tokenToAxioms = new Map();
+        this.patternAxioms = [];
+    }
+    
+    addAxiom(axiom) {
+        const hasPattern = axiom.subnets.some(subnet => 
+            subnet.some(token => token.includes('?'))
+        );
+        
+        if (hasPattern) {
+            this.patternAxioms.push(axiom);
+        } else {
+            // Index by first token of each subnet
+            for (const subnet of axiom.subnets) {
+                if (subnet.length > 0) {
+                    const token = subnet[0];
+                    if (!this.tokenToAxioms.has(token)) {
+                        this.tokenToAxioms.set(token, []);
+                    }
+                    this.tokenToAxioms.get(token).push(axiom);
+                }
+            }
+        }
+    }
+    
+    getRelevantAxioms(expr) {
+        const relevantAxioms = new Set();
+        
+        // Get axioms matching any token in the expression
+        for (const token of expr) {
+            if (this.tokenToAxioms.has(token)) {
+                for (const axiom of this.tokenToAxioms.get(token)) {
+                    relevantAxioms.add(axiom);
+                }
+            }
+        }
+        
+        // Always include pattern axioms
+        for (const axiom of this.patternAxioms) {
+            relevantAxioms.add(axiom);
+        }
+        
+        return Array.from(relevantAxioms);
+    }
+}
+
+// Heuristic cache
+class HeuristicCache {
+    constructor() {
+        this.cache = new Map();
+    }
+    
+    getKey(expr1, expr2) {
+        return `${expr1.join(' ')}|||${expr2.join(' ')}`;
+    }
+    
+    get(expr1, expr2) {
+        return this.cache.get(this.getKey(expr1, expr2));
+    }
+    
+    set(expr1, expr2, value) {
+        this.cache.set(this.getKey(expr1, expr2), value);
+    }
+}
+
+// Pattern matching with variables
+function matchPattern(pattern, expr, bindings = {}) {
+    if (pattern.length > expr.length) return null;
+    
+    const newBindings = {...bindings};
+    
+    for (let i = 0; i <= expr.length - pattern.length; i++) {
+        let match = true;
+        const tempBindings = {...newBindings};
+        
+        for (let j = 0; j < pattern.length; j++) {
+            const patternToken = pattern[j];
+            const exprToken = expr[i + j];
+            
+            if (patternToken.startsWith('?')) {
+                // Pattern variable
+                if (tempBindings[patternToken]) {
+                    if (tempBindings[patternToken] !== exprToken) {
+                        match = false;
+                        break;
+                    }
+                } else {
+                    tempBindings[patternToken] = exprToken;
+                }
+            } else if (patternToken !== exprToken) {
+                match = false;
+                break;
+            }
+        }
+        
+        if (match) {
+            return {
+                position: i,
+                bindings: tempBindings
+            };
+        }
+    }
+    
+    return null;
+}
+
+// Apply pattern substitution
+function applySubstitution(pattern, bindings) {
+    return pattern.map(token => {
+        if (token.startsWith('?') && bindings[token]) {
+            return bindings[token];
+        }
+        return token;
+    });
+}
+
+// Canonicalization for commutative operations
+function canonicalize(expr) {
+    // Simple canonicalization: sort sequences of additions
+    const result = [...expr];
+    
+    // Find + operators and sort their operands
+    for (let i = 0; i < result.length; i++) {
+        if (result[i] === '+' && i > 0 && i < result.length - 1) {
+            // Collect all terms in this addition chain
+            const terms = [];
+            let start = i - 1;
+            
+            // Go backwards to find start
+            while (start > 0 && result[start - 1] === '+') {
+                start -= 2;
+            }
+            
+            // Collect all terms
+            for (let j = start; j < result.length; j += 2) {
+                if (j >= result.length || (j > start && result[j - 1] !== '+')) break;
+                terms.push(result[j]);
+            }
+            
+            // Sort terms
+            terms.sort();
+            
+            // Replace in result
+            let k = 0;
+            for (let j = start; j < result.length && k < terms.length; j += 2) {
+                if (j >= result.length || (j > start && result[j - 1] !== '+')) break;
+                result[j] = terms[k++];
+            }
+        }
+    }
+    
+    return result;
+}
+
+let heuristicCache;
+let axiomIndex;
+let proofHistory = [];
+
+function solveProblem() {
+    const { axioms, proofStatement } = parseInput(_input.value);
+    const startTime = performance.now();
+    
+    // Reset global state
+    heuristicCache = new HeuristicCache();
+    axiomIndex = new AxiomIndex();
+    proofHistory = [];
+    
+    // Build axiom index
+    for (const axiom of axioms) {
+        axiomIndex.addAxiom(axiom);
+    }
+    
+    const result = generateProofOptimized(axioms, proofStatement);
+    const endTime = performance.now();
+    
+    _output.value = result.proof;
+    _output.value += `\n\nTotal runtime: ${(endTime - startTime).toFixed(4)} ms`;
+    
+    // Display statistics
+    _stats.innerHTML = `
+        <strong>Search Statistics:</strong><br>
+        States explored: ${result.stats.statesExplored}<br>
+        Unique states: ${result.stats.uniqueStates}<br>
+        Queue operations: ${result.stats.queueOps}<br>
+        Search depth: ${result.stats.maxDepth}<br>
+        Strategy: ${result.stats.strategy}<br>
+        Proof steps found: ${proofHistory.length}
+    `;
+    
+    // If no complete proof, show partial proof
+    if (!result.proof.includes("Proof Found!") && proofHistory.length > 0) {
+        _output.value += "\n\n=== Partial Proof History ===\n";
+        for (const step of proofHistory) {
+            _output.value += `${step.from} => ${step.to} (via ${step.rule})\n`;
+        }
+    }
+}
+
+function parseInput(input) {
+    let lines = input
+        .split('\n')
+        .filter(line => line.trim() && !line.startsWith('//'));
+    let axiomsSet = new Set();
+
+    lines.slice().forEach((line, k) => {
+        // Handle pattern variables in axioms
+        const parts = line
+            .split(/[~<]?=+[>]?/g)
+            .map(s => s.trim());
+        parts.forEach((part, i) => {
+            parts.slice(i + 1).forEach(otherPart => {
+                axiomsSet.add({
+                    subnets: `${part} = ${otherPart}`,
+                    axiomID: `axiom_${k + 1}.0`,
+                    guidZ: k
+                });
+            });
+        });
+    });
+
+    const sortedAxioms = Array.from(axiomsSet).map(axiom => {
+        axiom.subnets = axiom.subnets
+            .split(' = ')
+            .sort((a, b) => b.length - a.length) // (lhs/rhs) //
+            .map(pair => pair.match(/\S+/g));
+        return axiom;
+    });
+
+    const proofStatement = sortedAxioms[sortedAxioms.length - 1];
+    return {
+        axioms: sortedAxioms.slice(0, -1),
+        proofStatement: proofStatement
+    };
+}
+
+function generateProofOptimized(axioms, proofStatement) {
+    const [lhs, rhs] = proofStatement.subnets;
+    const lhsStr = lhs.join(' ');
+    const rhsStr = rhs.join(' ');
+
+    // Main search loop
+    let iterations = 0;
+    const maxIterations = 10000;
+    
+    // Statistics tracking
+    const stats = {
+        statesExplored: 0,
+        uniqueStates: 0,
+        queueOps: 0,
+        maxDepth: 0,
+        strategy: _currentSearchStrategy.description
+    };
+
+    // If already equal, return immediately
+    if (lhsStr === rhsStr) {
+        return {
+            proof: "Proof Found!\n\n" + lhsStr + " = " + rhsStr + ", trivial\n\nQ.E.D.",
+            stats
+        };
+    }
+
+    // Heuristic function with caching
+    function heuristic(expr1, expr2) {
+        // Check cache first
+        let cached = heuristicCache.get(expr1, expr2);
+        if (cached !== undefined) return cached;
+        
+        const arr1 = [...expr1];
+        const arr2 = [...expr2];
+        
+        // Combine multiple heuristics
+        let h = 0;
+        
+        // Length difference
+        h += Math.abs(arr1.length - arr2.length) * 2;
+        
+        // Token difference
+        const tokens1 = new Set(arr1);
+        const tokens2 = new Set(arr2);
+        const common = new Set([...tokens1].filter(x => tokens2.has(x)));
+        h += (tokens1.size + tokens2.size - 2 * common.size);
+        
+        // Position-based difference
+        const minLen = Math.min(arr1.length, arr2.length);
+        for (let i = 0; i < minLen; i++) {
+            if (arr1[i] !== arr2[i]) h += 1;
+        }
+        
+        // Cache the result
+        heuristicCache.set(expr1, expr2, h);
+        return h;
+    }
+
+    // Unified search state
+    class SearchState {
+        constructor(expr, path, side, depth = 0, 
+                searchStrategy = _currentSearchStrategy.config) {
+            this.expr = expr;
+            this.canonicalExpr = _canonicalFormFlag 
+                ? canonicalize(expr) /* fast! Only finds approximate solutions. */ 
+                : expr ;
+            this.exprStr = expr.join(' ');
+            this.canonicalStr = this.canonicalExpr.join(' ');
+            this.path = path;
+            this.side = side;
+            this.depth = depth;
+            this.searchStrategy = searchStrategy;
+        }
+        
+        getPriority(targetExpr) {
+            // BFS (Greedy) - only use heuristic, not depth, else
+            // A* f(n) = g(n) + h(n)
+            const g = this.depth; // Cost so far
+            const h = heuristic(this.canonicalExpr, targetExpr); // Heuristic estimate
+            return ((this.searchStrategy == 'a*') || ((this.searchStrategy == 'adaptive') && (iterations > (maxIterations * .1))) ? g : 0) + h;
+        }
+    }
+
+    // Bidirectional BFS search
+    const lhsQueue = new BinaryHeap();
+    const rhsQueue = new BinaryHeap();
+    const lhsVisited = new Map();
+    const rhsVisited = new Map();
+    
+    // Initialize with starting states
+    const lhsStart = new SearchState(lhs, [{expr: lhs, rule: 'start'}], 'lhs');
+    const rhsStart = new SearchState(rhs, [{expr: rhs, rule: 'start'}], 'rhs');
+    
+    lhsQueue.enqueue(lhsStart, lhsStart.getPriority(rhs));
+    rhsQueue.enqueue(rhsStart, rhsStart.getPriority(lhs));
+    lhsVisited.set(lhsStart.canonicalStr, lhsStart);
+    rhsVisited.set(rhsStart.canonicalStr, rhsStart);
+
+    // Generate all possible rewrites for an expression
+    function* generateRewrites(expr, indir) {
+        const relevantAxioms = axiomIndex.getRelevantAxioms(expr);
+        
+        for (const axiom of relevantAxioms) {
+            // Try both directions
+            for (const [from, to] of [[axiom.subnets[0], axiom.subnets[1]], 
+                                        [axiom.subnets[1], axiom.subnets[0]]]) {
+                
+                // Check for pattern variables
+                const hasPattern = from.some(token => token.includes('?'));
+                
+                if (!hasPattern) {
+                    // Regular replacement
+                    const results = [
+                        tryReplace(expr, from, to, 'A'),
+                        tryReplace(expr, from, to, 'B')
+                    ];
+                    
+                    for (const result of results) {
+                        if (result) {
+                            yield {
+                                expr: result,
+                                axiom: axiom.axiomID,
+                                direction: to.length > from.length ? `expand` : `reduce`
+                            };
+                        }
+                    }
+                } else {
+                    // Pattern matching
+                    const match = matchPattern(from, expr);
+                    if (match) {
+                        const substitutedTo = applySubstitution(to, match.bindings);
+                        const newExpr = [
+                            ...expr.slice(0, match.position),
+                            ...substitutedTo,
+                            ...expr.slice(match.position + from.length)
+                        ];
+                        
+                        yield {
+                            expr: newExpr,
+                            axiom: axiom.axiomID,
+                            direction: to.length > from.length ? `expand` : `reduce`
+                        };
+                    }
+                }
+            }
+        }
+    }
+    
+    while (!lhsQueue.isEmpty() || !rhsQueue.isEmpty()) {
+        if (iterations++ > maxIterations) break;
+        
+        // Alternate between queues for balanced search
+        for (const [queue, visited, otherVisited, side, targetExpr] of [
+            [lhsQueue, lhsVisited, rhsVisited, 'lhs', rhs],
+            [rhsQueue, rhsVisited, lhsVisited, 'rhs', lhs]
+        ]) {
+            if (queue.isEmpty()) continue;
+            
+            const current = queue.dequeue();
+            if (!current) continue;
+            
+            stats.statesExplored++;
+            stats.queueOps++;
+            stats.maxDepth = Math.max(stats.maxDepth, current.depth);
+            
+            // Check if we've met in the middle (using canonical form)
+            if (otherVisited.has(current.canonicalStr)) {
+                const otherState = otherVisited.get(current.canonicalStr);
+                return {
+                    proof: constructProof(current, otherState),
+                    stats
+                };
+            }
+            
+            // Generate and explore neighbors
+            for (const rewrite of generateRewrites(current.expr, side)) {
+                const newState = new SearchState(
+                    rewrite.expr,
+                    [...current.path, {
+                        expr: rewrite.expr,
+                        rule: `${rewrite.axiom} (${rewrite.direction})`
+                    }],
+                    side,
+                    current.depth + 1
+                );
+                
+                // Record in proof history
+                proofHistory.push({
+                    from: current.exprStr,
+                    to: newState.exprStr,
+                    rule: `${rewrite.axiom} (${rewrite.direction})`
+                });
+                
+                // Skip if already visited with shorter path
+                if (visited.has(newState.canonicalStr) && 
+                    visited.get(newState.canonicalStr).depth <= newState.depth) {
+                    continue;
+                }
+                
+                visited.set(newState.canonicalStr, newState);
+                queue.enqueue(newState, newState.getPriority(targetExpr));
+                stats.queueOps++;
+                stats.uniqueStates = visited.size + otherVisited.size;
+            }
+        }
+    }
+    
+    // No proof found
+    return {
+        proof: "No proof found within search limits.",
+        stats
+    };
+}
+
+// Construct the final proof from two meeting paths
+function constructProof(lhsState_, rhsState_) { /* bug */
+    let proof = "Proof Found!\n\n";
+
+    const lhsState = lhsState_.side == "lhs" ? lhsState_ : rhsState_ ;
+    const rhsState = lhsState_.side == "lhs" ? rhsState_ : lhsState_ ;
+    
+    // LHS transformations
+    const rhsStart = rhsState.path[0].expr.join(' ');
+    for (let i = 0; i < lhsState.path.length; i++) {
+        const step = lhsState.path[i];
+        proof += `${step.expr.join(' ')} = ${rhsStart}`;
+        if (step.rule !== 'start') {
+            proof += `, via ${step.rule} (lhs)`;
+        } 
+        proof += '\n';
+    }
+    
+    // RHS transformations (in reverse)
+    const lhsEnd = lhsState.path[lhsState.path.length - 1].expr.join(' ');
+    for (let i = 1; i < rhsState.path.length; i++) {
+        const step = rhsState.path[i];
+        proof += `${lhsEnd} = ${step.expr.join(' ')}, via ${step.rule} (rhs)\n`;
+    }
+    
+    proof += "\nQ.E.D.";
+    return proof;
+}
+
+// Optimized replacement functions
+function tryReplace(arr, from, to, method) {
+    if (from.length > arr.length) return false;
+    
+    if (method === 'A') {
+        // First occurrence replacement
+        for (let i = 0; i <= arr.length - from.length; i++) {
+            let match = true;
+            for (let j = 0; j < from.length; j++) {
+                if (arr[i + j] !== from[j]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                return [...arr.slice(0, i), ...to, ...arr.slice(i + from.length)];
+            }
+        }
+    } else if (method === 'B') {
+        // All occurrences replacement
+        let result = [...arr];
+        let changed = false;
+        
+        for (let i = arr.length - from.length; i >= 0; i--) {
+            let match = true;
+            for (let j = 0; j < from.length; j++) {
+                if (result[i + j] !== from[j]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                result.splice(i, from.length, ...to);
+                changed = true;
+            }
+        }
+        
+        return changed ? result : false;
+    }
+    
+    return false;
+}
+
+// UI functions
+function updateLineNumbers() {
+    const lines = _input.value.split('\n');
+    let i = 1;
+    _lineNumbers.innerHTML = lines
+        .map(u => /^[^\/\t\s\n]+/.test(u) ? i++ : '')
+        .join('<br>');
+}
+
+_input.addEventListener('keyup', function() {updateLineNumbers();});
+_input.addEventListener('scroll', function() {
+    _lineNumbers.scrollTop = this.scrollTop;
+});
+
+// JavaScript: Persist textarea contents using localStorage
+document.addEventListener('DOMContentLoaded', () => {
+    const textarea = _input;
+
+    // Load saved value from localStorage if it exists
+    const savedText = JSON.parse(localStorage.getItem('lastProof'));
+    if (savedText !== null) {
+        textarea.value = savedText;
+    }
+
+    // Save value to localStorage on _input
+    textarea.addEventListener('input', () => {
+        localStorage.setItem('lastProof', JSON.stringify(textarea.value, ' ', 2));
+    });
+
+    updateLineNumbers();
+});
+
+// Initialize with example including pattern variables
+_input.value = `// Axioms and Lemmas
 1 + 1 = 2
 2 + 2 = 4
+
+// Pattern variable example
+nat { ?x } = nat_range { 1 }
+nat_range { ?n } = nat_range { ?n + 1 }
 
 // Prove
 1 + 2 + 1 = 4`;
 
-output.value = '';
-
-updateLineNumbers ();
+updateLineNumbers();

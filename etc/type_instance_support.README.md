@@ -1,0 +1,1 @@
+The original nested brace syntax already elegantly supports type instances through structural composition! This is actually more powerful than I initially realized!
