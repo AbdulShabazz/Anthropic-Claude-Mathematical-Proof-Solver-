@@ -667,3 +667,36 @@ nat_range { ?n } = nat_range { ?n + 1 }
 1 + 2 + 1 = 4`;
 
 updateLineNumbers();
+
+/** Example Usage */
+/* 
+const axiomCount = 100_000;
+
+const ann = new AxiomAddressANN({
+  inputSize: 4,
+  hiddenSize: 64,
+  axiomCount,
+  learningRate: 0.03,
+  seed: 42
+});
+
+const samples = [
+    // t[+ 1 2 4 ] //
+  { t: [1, 2, 0, 0], i: 0 },
+  { t: [0, 0, 1, 0], i: 0 },
+  { t: [1, 0, 2, 0], i: 1 },
+  { t: [0, 0, 0, 1], i: 1 }
+];
+
+ann.train(samples, { epochs: 5000 });
+
+// 1 + 1 + 1 + 1
+const t = [3, 4, 0, 0];
+
+// 1 + 1 + 1 + 1
+//const t = [0, 0, 0, 1];
+
+const result = ann.predictAddress( t );
+
+console.log(result);
+*/
