@@ -273,8 +273,42 @@ class AxiomAddressANN {
   }
 } // end class
 
+AxiomAddressANN.prototype.toJSON = function () {
+    return {
+        inputSize: this.inputSize,
+        hiddenSize: this.hiddenSize,
+        axiomCount: this.axiomCount,
+        addressBits: this.addressBits,
+        learningRate: this.learningRate,
+        W1: Array.from(this.W1),
+        b1: Array.from(this.b1),
+        W2: Array.from(this.W2),
+        b2: Array.from(this.b2)
+    };
+};
+
+AxiomAddressANN.fromJSON = function (data) {
+    const ann = new AxiomAddressANN({
+        inputSize: data.inputSize,
+        hiddenSize: data.hiddenSize,
+        axiomCount: data.axiomCount,
+        learningRate: data.learningRate ?? 0.02,
+        seed: 1
+    });
+
+    ann.W1.set(data.W1);
+    ann.b1.set(data.b1);
+    ann.W2.set(data.W2);
+    ann.b2.set(data.b2);
+
+    return ann;
+};
+
 /** Example Usage */
 /* 
+
+// ReLU/Sigmoid hybrid architecture
+
 const axiomCount = 100_000;
 
 const ann = new AxiomAddressANN({
