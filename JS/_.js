@@ -12,13 +12,14 @@
  * 2 + 2 = 4, via axiom 0 LHS reduce
  * 2 + 2 = 2 + 2, via axiom 1 RHS expand
  * Q.E.D.
+ * 
  */
 
 // ANN axiom-address dispatch configuration.
 // "off"       -> original token-index path only.
 // "ann_first" -> ANN-selected axioms first, then deterministic fallback.
 // "ann_only"  -> ANN-selected axioms only; fastest, but may miss proofs.
-const _annDispatchMode = "ann_only"; // "off", "ann_first", "ann_only" //
+const _annDispatchMode = "ann_first"; // "off", "ann_first", "ann_only" //
 
 // Other ANN default configs
 const _annHiddenSize = 64;
