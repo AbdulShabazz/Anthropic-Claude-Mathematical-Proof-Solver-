@@ -20,7 +20,7 @@
 // "ann_first"           -> ANN-selected axioms first, then deterministic fallback.
 // "ann_ranked_fallback" -> deterministic fallback candidates, ranked by ANN preference.
 // "ann_only"            -> ANN-selected axioms only; fastest, but may miss proofs.
-const _annDispatchMode = "ann_ranked_fallback"; // "off", "ann_first", "ann_ranked_fallback", "ann_only" //
+const _annDispatchMode = "off"; // "off", "ann_first", "ann_ranked_fallback", "ann_only" //
 
 // Other ANN default configs
 const _annHiddenSize = 128;
@@ -37,7 +37,7 @@ const _annPredictionDirections = [0, 1];
 const _annMaxWindowLength = 12;
 
 // Prediction-cache cap. Prevents unbounded Map growth during large searches.
-const _annPredictionCacheLimit = Number.POSITIVE_INFINITY;
+const _annPredictionCacheLimit = 4096;
 
 // Add prover-side ANN helper functions (Place after your existing utility functions, or before BinaryHeap.)
 function normalizeAxiomToken(token) {
@@ -563,6 +563,15 @@ const _searchStrategy = {
 const _currentSearchStrategy = _searchStrategy.option._astar; // _astar,_greedy,_adaptive //
 const _canonicalFormFlag = false; // Add ANN dispatch configuration. fast! Only finds approximate solutions.
 
+// Rewrite candidate selection configuration.
+// "deterministic" -> original legal rewrite order.
+// "matrix_beam"  -> rank legal rewrites by tally-shaped matrix residual before enqueue.
+const _rewriteCandidateMode = "matrix_beam"; // "deterministic", "matrix_beam" //
+const _matrixBeamWidth = 16;
+const _matrixAllowWorsening = 4;
+const _matrixNorm = "l1"; // "l1", "l2" //
+const _matrixIncludeAllOccurrencesCandidate = true;
+
 // Binary Heap implementation for O(log n) operations
 class BinaryHeap {
     constructor(compareFn) {
@@ -804,6 +813,193 @@ function canonicalize(expr) {
     return result;
 }
 
+// Sparse tally vector helpers. A tally is a plain object: { token: count }.
+// A delta has the same structure, but values may be negative.
+function makeTally(tokens) {
+    const tally = Object.create(null);
+
+    if (!Array.isArray(tokens)) return tally;
+
+    for (const token of tokens) {
+        const key = normalizeAxiomToken(token);
+        tally[key] = (tally[key] || 0) + 1;
+    }
+
+    return tally;
+}
+
+function cloneTally(tally) {
+    const out = Object.create(null);
+
+    for (const key in tally) {
+        out[key] = tally[key];
+    }
+
+    return out;
+}
+
+function addTallyValue(out, key, value) {
+    const next = (out[key] || 0) + value;
+
+    if (next === 0) {
+        delete out[key];
+    } else {
+        out[key] = next;
+    }
+}
+
+function subtractTallies(left, right) {
+    const out = Object.create(null);
+
+    for (const key in left) {
+        addTallyValue(out, key, left[key]);
+    }
+
+    for (const key in right) {
+        addTallyValue(out, key, -right[key]);
+    }
+
+    return out;
+}
+
+function deltaTally(from, to) {
+    // Directed rewrite delta: tally(to) - tally(from).
+    // The result deliberately preserves the same sparse object shape as makeTally().
+    return subtractTallies(makeTally(to), makeTally(from));
+}
+
+function applyTallyDelta(tally, delta) {
+    const out = cloneTally(tally);
+
+    for (const key in delta) {
+        addTallyValue(out, key, delta[key]);
+    }
+
+    return out;
+}
+
+function tallyNorm(tally, norm = _matrixNorm) {
+    let score = 0;
+
+    for (const key in tally) {
+        const value = tally[key];
+        score += norm === "l2" ? value * value : Math.abs(value);
+    }
+
+    return score;
+}
+
+function scoreMatrixCandidate(side, currentTally, targetTally, delta) {
+    const oldResidual = side === "lhs"
+        ? subtractTallies(currentTally, targetTally)
+        : subtractTallies(targetTally, currentTally);
+
+    const nextCurrentTally = applyTallyDelta(currentTally, delta);
+
+    const newResidual = side === "lhs"
+        ? subtractTallies(nextCurrentTally, targetTally)
+        : subtractTallies(targetTally, nextCurrentTally);
+
+    const oldScore = tallyNorm(oldResidual);
+    const score = tallyNorm(newResidual);
+
+    return {
+        score,
+        oldScore,
+        improvement: oldScore - score,
+        residual: newResidual,
+        delta
+    };
+}
+
+function arraysMatchAt(expr, pattern, position) {
+    if (!Array.isArray(expr) || !Array.isArray(pattern)) return false;
+    if (position < 0 || position + pattern.length > expr.length) return false;
+
+    for (let i = 0; i < pattern.length; i++) {
+        if (expr[position + i] !== pattern[i]) return false;
+    }
+
+    return true;
+}
+
+function replaceAt(expr, from, to, position) {
+    return [
+        ...expr.slice(0, position),
+        ...to,
+        ...expr.slice(position + from.length)
+    ];
+}
+
+function replaceAllOccurrences(expr, from, to) {
+    let result = [...expr];
+    let changed = false;
+
+    for (let i = result.length - from.length; i >= 0; i--) {
+        if (arraysMatchAt(result, from, i)) {
+            result.splice(i, from.length, ...to);
+            changed = true;
+        }
+    }
+
+    return changed ? result : false;
+}
+
+function findLiteralMatches(expr, from) {
+    const positions = [];
+
+    if (!Array.isArray(from) || from.length === 0 || from.length > expr.length) {
+        return positions;
+    }
+
+    for (let i = 0; i <= expr.length - from.length; i++) {
+        if (arraysMatchAt(expr, from, i)) {
+            positions.push(i);
+        }
+    }
+
+    return positions;
+}
+
+function findPatternMatches(pattern, expr, bindings = {}) {
+    const matches = [];
+
+    if (pattern.length > expr.length) return matches;
+
+    for (let i = 0; i <= expr.length - pattern.length; i++) {
+        let ok = true;
+        const tempBindings = {...bindings};
+
+        for (let j = 0; j < pattern.length; j++) {
+            const patternToken = pattern[j];
+            const exprToken = expr[i + j];
+
+            if (patternToken.startsWith('?')) {
+                if (tempBindings[patternToken]) {
+                    if (tempBindings[patternToken] !== exprToken) {
+                        ok = false;
+                        break;
+                    }
+                } else {
+                    tempBindings[patternToken] = exprToken;
+                }
+            } else if (patternToken !== exprToken) {
+                ok = false;
+                break;
+            }
+        }
+
+        if (ok) {
+            matches.push({
+                position: i,
+                bindings: tempBindings
+            });
+        }
+    }
+
+    return matches;
+}
+
 let heuristicCache;
 let axiomIndex;
 let annDispatcher; // forward declaration //
@@ -862,6 +1058,11 @@ function solveProblem() {
         ANN valid bitfield predictions: ${result.stats.annValidPredictions}<br>
         ANN cache hits: ${result.stats.annCacheHits}<br>
         ANN fallback scans: ${result.stats.annFallbackScans}<br>
+        Rewrite candidate mode: ${result.stats.rewriteCandidateMode}<br>
+        Matrix candidate count: ${result.stats.matrixCandidateCount}<br>
+        Matrix yielded count: ${result.stats.matrixYieldCount}<br>
+        Matrix pruned count: ${result.stats.matrixPrunedCount}<br>
+        Matrix beam width: ${result.stats.matrixBeamWidth}<br>
         Proof steps found: ${proofHistory.length}
     `;
 
@@ -954,7 +1155,13 @@ function generateProofOptimized(axioms, proofStatement) {
         annFallbackScans: annDispatcher?.stats.annFallbackScans ?? 0,
 
         meetChecks: 0,
-        fastForwardHits: 0
+        fastForwardHits: 0,
+
+        rewriteCandidateMode: _rewriteCandidateMode,
+        matrixCandidateCount: 0,
+        matrixYieldCount: 0,
+        matrixPrunedCount: 0,
+        matrixBeamWidth: _matrixBeamWidth
     };
 
     function syncAnnStats() {
@@ -1081,8 +1288,176 @@ function generateProofOptimized(axioms, proofStatement) {
         return null;
     }
 
-    // Generate all possible rewrites for an expression
-    function* generateRewrites(expr, indir) {
+    function makeRewriteCandidate(expr, side, axiom, from, to, resultExpr, position, method, targetExpr) {
+        const delta = deltaTally(from, to);
+        const currentTally = makeTally(expr);
+        const targetTally = makeTally(targetExpr);
+        const matrix = scoreMatrixCandidate(side, currentTally, targetTally, delta);
+
+        return {
+            expr: resultExpr,
+            axiom: axiom.axiomID,
+            axiomIndex: axiom.nnIndex,
+            direction: to.length > from.length ? `expand` : `reduce`,
+            side,
+            from,
+            to,
+            position,
+            method,
+            delta: matrix.delta,
+            matrixScore: matrix.score,
+            matrixOldScore: matrix.oldScore,
+            matrixImprovement: matrix.improvement,
+            matrixResidual: matrix.residual,
+            length: resultExpr.length
+        };
+    }
+
+    function collectRewriteCandidates(expr, side, targetExpr, relevantAxioms) {
+        const candidates = [];
+        const seenResults = new Set();
+
+        const pushCandidate = (candidate) => {
+            const key = `${candidate.axiom}|${candidate.direction}|${candidate.method}|${candidate.position}|${candidate.expr.join(' ')}`;
+
+            if (seenResults.has(key)) return;
+
+            seenResults.add(key);
+            candidates.push(candidate);
+        };
+
+        for (const axiom of relevantAxioms) {
+            for (const [from, to] of [
+                [axiom.subnets[0], axiom.subnets[1]],
+                [axiom.subnets[1], axiom.subnets[0]]
+            ]) {
+                const hasPattern = from.some(token => token.includes('?'));
+
+                if (!hasPattern) {
+                    const positions = findLiteralMatches(expr, from);
+
+                    for (const position of positions) {
+                        pushCandidate(
+                            makeRewriteCandidate(
+                                expr,
+                                side,
+                                axiom,
+                                from,
+                                to,
+                                replaceAt(expr, from, to, position),
+                                position,
+                                'single',
+                                targetExpr
+                            )
+                        );
+                    }
+
+                    if (_matrixIncludeAllOccurrencesCandidate && positions.length > 1) {
+                        const allResult = replaceAllOccurrences(expr, from, to);
+
+                        if (allResult) {
+                            // For simultaneous all-occurrence replacement, the delta is effectively multiplied.
+                            // Keep the same tally-shaped object representation while scaling each signed count.
+                            const candidate = makeRewriteCandidate(
+                                expr,
+                                side,
+                                axiom,
+                                from,
+                                to,
+                                allResult,
+                                -1,
+                                'all',
+                                targetExpr
+                            );
+
+                            const scaledDelta = Object.create(null);
+
+                            for (const key in candidate.delta) {
+                                scaledDelta[key] = candidate.delta[key] * positions.length;
+                            }
+
+                            const matrix = scoreMatrixCandidate(
+                                side,
+                                makeTally(expr),
+                                makeTally(targetExpr),
+                                scaledDelta
+                            );
+
+                            candidate.delta = matrix.delta;
+                            candidate.matrixScore = matrix.score;
+                            candidate.matrixOldScore = matrix.oldScore;
+                            candidate.matrixImprovement = matrix.improvement;
+                            candidate.matrixResidual = matrix.residual;
+
+                            pushCandidate(candidate);
+                        }
+                    }
+                } else {
+                    const matches = findPatternMatches(from, expr);
+
+                    for (const match of matches) {
+                        const substitutedTo = applySubstitution(to, match.bindings);
+                        const resultExpr = [
+                            ...expr.slice(0, match.position),
+                            ...substitutedTo,
+                            ...expr.slice(match.position + from.length)
+                        ];
+
+                        pushCandidate(
+                            makeRewriteCandidate(
+                                expr,
+                                side,
+                                axiom,
+                                from,
+                                substitutedTo,
+                                resultExpr,
+                                match.position,
+                                'pattern',
+                                targetExpr
+                            )
+                        );
+                    }
+                }
+            }
+        }
+
+        return candidates;
+    }
+
+    function rankMatrixCandidates(candidates) {
+        if (_rewriteCandidateMode !== "matrix_beam") {
+            return candidates;
+        }
+
+        stats.matrixCandidateCount += candidates.length;
+
+        if (candidates.length === 0) {
+            return candidates;
+        }
+
+        const oldScore = candidates[0].matrixOldScore;
+        const allowedScore = oldScore + _matrixAllowWorsening;
+
+        const sorted = candidates
+            .filter(candidate => candidate.matrixScore <= allowedScore)
+            .sort((a, b) => {
+                if (a.matrixScore !== b.matrixScore) return a.matrixScore - b.matrixScore;
+                if (a.matrixImprovement !== b.matrixImprovement) return b.matrixImprovement - a.matrixImprovement;
+                if (a.length !== b.length) return a.length - b.length;
+                return String(a.axiom).localeCompare(String(b.axiom));
+            });
+
+        const beam = sorted.slice(0, _matrixBeamWidth);
+
+        stats.matrixPrunedCount += Math.max(0, candidates.length - beam.length);
+        stats.matrixYieldCount += beam.length;
+
+        return beam;
+    }
+
+    // Generate all possible rewrites for an expression.
+    // In matrix_beam mode, legal rewrites are ranked using tally-shaped deltas.
+    function* generateRewrites(expr, side, targetExpr) {
         let fallbackAxioms = [];
 
         if (!annDispatcher || _annDispatchMode !== "ann_only") {
@@ -1108,68 +1483,19 @@ function generateProofOptimized(axioms, proofStatement) {
             annDispatcher?.stats.annFallbackScans ?? 0
         );
 
-        for (const axiom of relevantAxioms) {
-            for (const [from, to] of [
-                [axiom.subnets[0], axiom.subnets[1]],
-                [axiom.subnets[1], axiom.subnets[0]]
-            ]) {
-                const hasPattern = from.some(token => token.includes('?'));
+        const candidates = collectRewriteCandidates(expr, side, targetExpr, relevantAxioms);
+        const rankedCandidates = rankMatrixCandidates(candidates);
 
-                if (!hasPattern) {
-                    const results = [
-                        tryReplace(expr, from, to, 'A'),
-                        tryReplace(expr, from, to, 'B')
-                    ];
-
-                    for (const result of results) {
-                        if (result) {
-                            const axiomIndex = axiom.nnIndex;
-
-                            if (annDispatcher && Number.isInteger(axiomIndex)) {
-                                annDispatcher.addRuntimeSample(
-                                    expr,
-                                    axiomIndex,
-                                    to.length > from.length ? 0 : 1
-                                );
-                            }
-
-                            yield {
-                                expr: result,
-                                axiom: axiom.axiomID,
-                                direction: to.length > from.length ? `expand` : `reduce`
-                            };
-                        }
-                    }
-                } else {
-                    const match = matchPattern(from, expr);
-
-                    if (match) {
-                        const substitutedTo = applySubstitution(to, match.bindings);
-
-                        const newExpr = [
-                            ...expr.slice(0, match.position),
-                            ...substitutedTo,
-                            ...expr.slice(match.position + from.length)
-                        ];
-
-                        const axiomIndex = axiom.nnIndex;
-
-                        if (annDispatcher && Number.isInteger(axiomIndex)) {
-                            annDispatcher.addRuntimeSample(
-                                expr,
-                                axiomIndex,
-                                to.length > from.length ? 0 : 1
-                            );
-                        }
-
-                        yield {
-                            expr: newExpr,
-                            axiom: axiom.axiomID,
-                            direction: to.length > from.length ? `expand` : `reduce`
-                        };
-                    }
-                }
+        for (const candidate of rankedCandidates) {
+            if (annDispatcher && Number.isInteger(candidate.axiomIndex)) {
+                annDispatcher.addRuntimeSample(
+                    expr,
+                    candidate.axiomIndex,
+                    candidate.direction === 'expand' ? 0 : 1
+                );
             }
+
+            yield candidate;
         }
     }
     
@@ -1200,7 +1526,7 @@ function generateProofOptimized(axioms, proofStatement) {
             }
             
             // Generate and explore neighbors
-            for (const rewrite of generateRewrites(current.expr, side)) {
+            for (const rewrite of generateRewrites(current.expr, side, targetExpr)) {
                 const newState = new SearchState(
                     rewrite.expr,
                     [...current.path, {
