@@ -19,19 +19,19 @@
 // "off"       -> original token-index path only.
 // "ann_first" -> ANN-selected axioms first, then deterministic fallback.
 // "ann_only"  -> ANN-selected axioms only; fastest, but may miss proofs.
-const _annDispatchMode = "ann_first"; // "off", "ann_first", "ann_only" //
+const _annDispatchMode = "off"; // "off", "ann_first", "ann_only" //
 
 // Other ANN default configs
-const _annHiddenSize = 64;
+const _annHiddenSize = 128;//64;
 const _annLearningRate = 0.03;
 const _annSeed = 42;
 const _bidirectionalFastForwardFlag = true;
 
-// Maximum contiguous expression window used for ANN axiom-address prediction.
+// Maximum contiguous expression window used for ANN axiom-address prediction. (i.e., LN (Axioms.length) )
 const _annMaxWindowLength = 12;
 
 // Prediction-cache cap. Prevents unbounded Map growth during large searches.
-const _annPredictionCacheLimit = 4096;
+const _annPredictionCacheLimit = Number.POSITIVE_INFINITY;//4096;
 
 // Add prover-side ANN helper functions (Place after your existing utility functions, or before BinaryHeap.)
 function normalizeAxiomToken(token) {
@@ -291,7 +291,7 @@ class NeuralAxiomDispatcher {
 
     _loadCachedModel() {
         try {
-            if (typeof localStorage === 'undefined') return null;
+            if (1/* typeof localStorage === 'undefined' */) return null;
 
             const raw = localStorage.getItem(this._cacheKey());
             if (!raw) return null;
