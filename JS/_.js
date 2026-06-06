@@ -16,22 +16,28 @@
  */
 
 // ANN axiom-address dispatch configuration.
-// "off"       -> original token-index path only.
-// "ann_first" -> ANN-selected axioms first, then deterministic fallback.
-// "ann_only"  -> ANN-selected axioms only; fastest, but may miss proofs.
-const _annDispatchMode = "off"; // "off", "ann_first", "ann_only" //
+// "off"                 -> original token-index path only.
+// "ann_first"           -> ANN-selected axioms first, then deterministic fallback.
+// "ann_ranked_fallback" -> deterministic fallback candidates, ranked by ANN preference.
+// "ann_only"            -> ANN-selected axioms only; fastest, but may miss proofs.
+const _annDispatchMode = "ann_ranked_fallback"; // "off", "ann_first", "ann_ranked_fallback", "ann_only" //
 
 // Other ANN default configs
-const _annHiddenSize = 128;//64;
+const _annHiddenSize = 128;
 const _annLearningRate = 0.03;
 const _annSeed = 42;
 const _bidirectionalFastForwardFlag = true;
 
-// Maximum contiguous expression window used for ANN axiom-address prediction. (i.e., LN (Axioms.length) )
+// Predict both rewrite directions:
+// 0 => expansion-preference context
+// 1 => reduction-preference context
+const _annPredictionDirections = [0, 1];
+
+// Maximum contiguous expression window used for ANN axiom-address prediction.
 const _annMaxWindowLength = 12;
 
 // Prediction-cache cap. Prevents unbounded Map growth during large searches.
-const _annPredictionCacheLimit = Number.POSITIVE_INFINITY;//4096;
+const _annPredictionCacheLimit = Number.POSITIVE_INFINITY;
 
 // Add prover-side ANN helper functions (Place after your existing utility functions, or before BinaryHeap.)
 function normalizeAxiomToken(token) {
@@ -246,30 +252,67 @@ class NeuralAxiomDispatcher {
 
     _buildTrainingSamples() {
         const samples = [];
+        const sampleKeys = new Set();
+
+        const addSample = (tokens, axiomIndex, direction) => {
+            if (!Array.isArray(tokens) || tokens.length === 0) return;
+
+            const key = `${axiomIndex}|${direction}|${tokens.join(' ')}`;
+
+            if (sampleKeys.has(key)) return;
+
+            sampleKeys.add(key);
+
+            samples.push({
+                t: this.compiler.encode(tokens, direction),
+                i: axiomIndex
+            });
+        };
+
+        const addWindowSamples = (tokens, axiomIndex, direction) => {
+            if (!Array.isArray(tokens) || tokens.length === 0) return;
+
+            const maxWindow = Math.min(
+                _annMaxWindowLength,
+                this.compiler.maxSubnetLength,
+                tokens.length
+            );
+
+            for (let len = 1; len <= maxWindow; len++) {
+                for (let start = 0; start <= tokens.length - len; start++) {
+                    addSample(tokens.slice(start, start + len), axiomIndex, direction);
+                }
+            }
+        };
 
         for (let i = 0; i < this.axioms.length; i++) {
             const axiom = this.axioms[i];
             const [a, b] = axiom.subnets;
 
+            // Train both orientations because parseInput sorts subnet length,
+            // while proof search may use either subnet as the active rewrite source.
             if (Array.isArray(a)) {
-                samples.push({
-                    t: this.compiler.encode(a, 0),
-                    i
-                });
+                addSample(a, i, 0);
+                addSample(a, i, 1);
+                addWindowSamples(a, i, 0);
+                addWindowSamples(a, i, 1);
             }
 
             if (Array.isArray(b)) {
-                samples.push({
-                    t: this.compiler.encode(b, 0),
-                    i
-                });
+                addSample(b, i, 0);
+                addSample(b, i, 1);
+                addWindowSamples(b, i, 0);
+                addWindowSamples(b, i, 1);
             }
 
+            // Context sample: helps the ANN associate both sides with the same address.
             if (Array.isArray(a) && Array.isArray(b)) {
-                samples.push({
-                    t: this.compiler.encode([...a, ...b], 0),
-                    i
-                });
+                const joined = [...a, ...b];
+
+                addSample(joined, i, 0);
+                addSample(joined, i, 1);
+                addWindowSamples(joined, i, 0);
+                addWindowSamples(joined, i, 1);
             }
         }
 
@@ -286,12 +329,12 @@ class NeuralAxiomDispatcher {
             this.compiler.fingerprint()
         );
 
-        return `ANN_AXIOM_SELECTOR_V2:${h}:${this.compiler.inputSize}:${this.hiddenSize}:${this.axioms.length}`;
+        return `ANN_AXIOM_SELECTOR_V3:${h}:${this.compiler.inputSize}:${this.hiddenSize}:${this.axioms.length}`;
     }
 
     _loadCachedModel() {
         try {
-            if (1/* typeof localStorage === 'undefined' */) return null;
+            if (typeof localStorage === 'undefined') return null;
 
             const raw = localStorage.getItem(this._cacheKey());
             if (!raw) return null;
@@ -348,26 +391,33 @@ class NeuralAxiomDispatcher {
             expr.length
         );
 
-        const predictWindow = (tokens) => {
-            const windowKey = tokens.join(' ');
-            if (seenWindows.has(windowKey)) return;
-
-            seenWindows.add(windowKey);
-
-            const prediction = this.ann.predictAddress(
-                this.compiler.encode(tokens, 0)
-            );
-
+        const recordPrediction = (prediction) => {
             this.stats.annPredictions++;
 
-            if (prediction.valid) {
-                this.stats.annValidPredictions++;
+            if (!prediction.valid) return;
 
-                const axiom = this.axioms[prediction.i];
+            this.stats.annValidPredictions++;
 
-                if (axiom) {
-                    selected.set(prediction.i, axiom);
-                }
+            const axiom = this.axioms[prediction.i];
+
+            if (axiom && !selected.has(prediction.i)) {
+                selected.set(prediction.i, axiom);
+            }
+        };
+
+        const predictWindow = (tokens) => {
+            for (const direction of _annPredictionDirections) {
+                const windowKey = `${direction}|${tokens.join(' ')}`;
+
+                if (seenWindows.has(windowKey)) continue;
+
+                seenWindows.add(windowKey);
+
+                recordPrediction(
+                    this.ann.predictAddress(
+                        this.compiler.encode(tokens, direction)
+                    )
+                );
             }
         };
 
@@ -426,12 +476,40 @@ class NeuralAxiomDispatcher {
             return predicted;
         }
 
+        if (_annDispatchMode === "ann_ranked_fallback") {
+            const rank = new Map();
+
+            for (let i = 0; i < predicted.length; i++) {
+                const key = predicted[i].nnIndex ?? predicted[i].axiomID;
+
+                if (!rank.has(key)) {
+                    rank.set(key, i);
+                }
+            }
+
+            return fallbackAxioms
+                .map((axiom, originalIndex) => ({
+                    axiom,
+                    originalIndex,
+                    rank: rank.has(axiom.nnIndex ?? axiom.axiomID)
+                        ? rank.get(axiom.nnIndex ?? axiom.axiomID)
+                        : Number.POSITIVE_INFINITY
+                }))
+                .sort((a, b) => {
+                    if (a.rank !== b.rank) return a.rank - b.rank;
+                    return a.originalIndex - b.originalIndex;
+                })
+                .map(item => item.axiom);
+        }
+
         const merged = [];
         const seen = new Set();
 
         for (const axiom of predicted) {
-            if (!seen.has(axiom.nnIndex)) {
-                seen.add(axiom.nnIndex);
+            const key = axiom.nnIndex ?? axiom.axiomID;
+
+            if (!seen.has(key)) {
+                seen.add(key);
                 merged.push(axiom);
             }
         }
