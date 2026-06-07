@@ -778,15 +778,19 @@ function findPatternAnchor(tokens) {
 
 function compileRewriteRules(axioms) {
     const rules = [];
+    let ruleOrdinal = 0;
 
     const addRule = (axiom, axiomIndex, from, to, orientation) => {
         const anchor = findPatternAnchor(from);
 
         rules.push({
-            ruleID: `${axiom.axiomID}:${orientation}`,
+            // Unique rule identity. Do not derive this only from axiomID.
+            ruleID: `rule_${ruleOrdinal++}`,
+
             axiomID: axiom.axiomID,
             guidZ: axiom.guidZ,
             nnIndex: axiomIndex,
+
             from,
             to,
             fromLen: from.length,
@@ -795,7 +799,12 @@ function compileRewriteRules(axioms) {
             hasPattern: from.some(isPatternToken),
             anchorToken: anchor?.token ?? null,
             anchorOffset: anchor?.offset ?? -1,
-            direction: to.length > from.length ? 'expand' : 'reduce'
+            direction: to.length > from.length ? 'expand' : 'reduce',
+
+            // Optional trace metadata.
+            orientation,
+            sourceLine: axiom.sourceLine,
+            sourcePair: axiom.sourcePair
         });
     };
 
@@ -1146,12 +1155,15 @@ function parseInput(input) {
         .filter(line => line.trim() && !line.trim().startsWith('//'));
 
     const axiomMap = new Map();
+    let globalAxiomOrdinal = 0;
 
     lines.slice().forEach((line, k) => {
         const parts = line
             .split(/[~<]?=+[>]?/g)
             .map(s => s.trim())
             .filter(Boolean);
+
+        let linePairOrdinal = 0;
 
         parts.forEach((part, i) => {
             parts.slice(i + 1).forEach(otherPart => {
@@ -1162,10 +1174,22 @@ function parseInput(input) {
                 if (!axiomMap.has(key)) {
                     axiomMap.set(key, {
                         subnets: [left, right],
-                        axiomID: `axiom_${k + 1}.0`,
-                        guidZ: k
+
+                        // Unique display/source ID per expanded pair.
+                        axiomID: `axiom_${k + 1}.${linePairOrdinal}`,
+
+                        // Unique internal ordinal. Use this for rule identity.
+                        guidZ: globalAxiomOrdinal,
+
+                        // Optional trace metadata.
+                        sourceLine: k + 1,
+                        sourcePair: linePairOrdinal
                     });
+
+                    globalAxiomOrdinal++;
                 }
+
+                linePairOrdinal++;
             });
         });
     });
