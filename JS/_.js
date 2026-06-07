@@ -834,6 +834,8 @@ function compileRewriteRules(axioms) {
             anchorOffset: anchor?.offset ?? -1,
             direction: to.length > from.length ? 'expand' : 'reduce',
 
+            requiredFromTally: makeRuleRequiredTally(from),
+
             // Optional trace metadata.
             orientation,
             sourceLine: axiom.sourceLine,
@@ -931,6 +933,63 @@ class HeuristicCache {
     set(expr1, expr2, value) {
         this.cache.set(this.getKey(expr1, expr2), value);
     }
+}
+
+function buildPositionIndexAndTally(expr) {
+    const positionIndex = new Map();
+    const tally = new Int16Array(_tokenStore.idToToken.length);
+
+    for (let i = 0; i < expr.length; i++) {
+        const token = expr[i];
+
+        tally[token]++;
+
+        let positions = positionIndex.get(token);
+
+        if (!positions) {
+            positions = [];
+            positionIndex.set(token, positions);
+        }
+
+        positions.push(i);
+    }
+
+    return {
+        positionIndex,
+        tally
+    };
+}
+
+function makeRuleRequiredTally(tokens) {
+    const counts = new Map();
+
+    for (const token of tokens) {
+        if (isPatternToken(token)) continue;
+
+        counts.set(token, (counts.get(token) || 0) + 1);
+    }
+
+    const required = [];
+
+    for (const [token, count] of counts) {
+        required.push({ token, count });
+    }
+
+    return required;
+}
+
+function tallyContainsRule(exprTally, exprLength, rule) {
+    if (rule.fromLen > exprLength) {
+        return false;
+    }
+
+    for (const req of rule.requiredFromTally) {
+        if ((exprTally[req.token] || 0) < req.count) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function buildPositionIndex(expr) {
@@ -1159,6 +1218,8 @@ function solveProblem() {
         ANN valid bitfield predictions: ${result.stats.annValidPredictions}<br>
         ANN cache hits: ${result.stats.annCacheHits}<br>
         ANN fallback scans: ${result.stats.annFallbackScans}<br>
+        Tally rule rejects: ${result.stats.tallyRuleRejects}<br>
+        Tally rule passes: ${result.stats.tallyRulePasses}<br>
         Final proof steps: ${result.stats.proofSteps}<br>
         Debug history records: ${proofHistory.length}
     `;
@@ -1279,6 +1340,9 @@ function generateProofOptimized(axioms, proofStatement) {
         annValidPredictions: annDispatcher?.stats.annValidPredictions ?? 0,
         annCacheHits: annDispatcher?.stats.annCacheHits ?? 0,
         annFallbackScans: annDispatcher?.stats.annFallbackScans ?? 0,
+
+        tallyRuleRejects: 0,
+        tallyRulePasses: 0,
 
         meetChecks: 0,
         fastForwardHits: 0
@@ -1448,7 +1512,9 @@ function generateProofOptimized(axioms, proofStatement) {
     }
 
     function* generateRewrites(expr, side) {
-        const positionIndex = buildPositionIndex(expr);
+        const indexed = buildPositionIndexAndTally(expr);
+        const positionIndex = indexed.positionIndex;
+        const exprTally = indexed.tally;
         stats.positionIndexBuilds++;
 
         let relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
@@ -1462,19 +1528,17 @@ function generateProofOptimized(axioms, proofStatement) {
         syncAnnStats();
 
         for (const rule of relevantRules) {
+            if (!tallyContainsRule(exprTally, expr.length, rule)) {
+                stats.tallyRuleRejects++;
+                continue;
+            }
+
+            stats.tallyRulePasses++;
             stats.ruleMatchAttempts++;
 
             for (const occurrence of matchRuleOccurrences(expr, rule, positionIndex)) {
                 const resultExpr = occurrence.resultExpr || replaceAt(expr, rule.from, occurrence.to, occurrence.position);
                 stats.rewriteCandidatesYielded++;
-
-                if (annDispatcher && Number.isInteger(rule.nnIndex)) {
-                    annDispatcher.addRuntimeSample(
-                        expr,
-                        rule.nnIndex,
-                        rule.direction === 'expand' ? 0 : 1
-                    );
-                }
 
                 yield {
                     expr: resultExpr,
