@@ -179,6 +179,10 @@ class NeuralAxiomDispatcher {
             annValidPredictions: 0,
             annCacheHits: 0,
             annFallbackScans: 0,
+            openQueueMode: _openQueueMode,
+            branchRankMode: _branchRankMode,
+            branchAnnPredictions: 0,
+            branchAnnTrainingSamples: 0,
             annMode: _annDispatchMode
         };
     }
@@ -572,88 +576,273 @@ const _matrixAllowWorsening = 4;
 const _matrixNorm = "l1"; // "l1", "l2" //
 const _matrixIncludeAllOccurrencesCandidate = true;
 
-// Binary Heap implementation for O(log n) operations
-class BinaryHeap {
-    constructor(compareFn) {
-        this.items = [];
-        this.compare = compareFn || ((a, b) => a.priority - b.priority);
+// OPEN queue: A*-safe score inversion plus ANN tie-ranking.
+const _openQueueMode = "bucket_astar"; // "bucket_astar", "ann_tie_astar"
+const _priorityMaxF = 65535;
+
+// Critical performance switch.
+// "off"         -> no ANN prediction/training in the OPEN queue hot path.
+// "predict_tie" -> ANN predicts tie-order only; no online training.
+const _branchRankMode = "off";
+
+const _branchTieBuckets = _branchRankMode === "off" ? 1 : 16;
+const _branchRankHiddenSize = 8;
+const _branchRankLearningRate = 0.02;
+
+function seededRand(seed) {
+    let s = seed >>> 0;
+
+    return function() {
+        s ^= s << 13;
+        s ^= s >>> 17;
+        s ^= s << 5;
+        return (s >>> 0) / 4294967296;
+    };
+}
+
+function sigmoid(x) {
+    if (x < -40) return 0;
+    if (x > 40) return 1;
+    return 1 / (1 + Math.exp(-x));
+}
+
+// Tiny ANN used only as an A*-safe tie-ranker inside equal f buckets.
+class BranchRankANN {
+    constructor(inputSize = 8, hiddenSize = 8, learningRate = 0.02, seed = 777) {
+        this.inputSize = inputSize;
+        this.hiddenSize = hiddenSize;
+        this.learningRate = learningRate;
+        this.wIH = new Float32Array(inputSize * hiddenSize);
+        this.bH = new Float32Array(hiddenSize);
+        this.wHO = new Float32Array(hiddenSize);
+        this.h = new Float32Array(hiddenSize);
+        this.bO = 0;
+
+        const rand = seededRand(seed);
+        for (let i = 0; i < this.wIH.length; i++) this.wIH[i] = (rand() * 2 - 1) / Math.sqrt(inputSize);
+        for (let i = 0; i < this.wHO.length; i++) this.wHO[i] = (rand() * 2 - 1) / Math.sqrt(hiddenSize);
     }
-    
-    enqueue(element, priority) {
-        this.items.push({element, priority});
-        this._bubbleUp(this.items.length - 1);
+
+    predict01(x) {
+        for (let j = 0; j < this.hiddenSize; j++) {
+            let sum = this.bH[j], base = j * this.inputSize;
+            for (let i = 0; i < this.inputSize; i++) sum += (x[i] || 0) * this.wIH[base + i];
+            this.h[j] = Math.tanh(sum);
+        }
+
+        let out = this.bO;
+        for (let j = 0; j < this.hiddenSize; j++) out += this.h[j] * this.wHO[j];
+        return sigmoid(out);
     }
-    
+
+    bucket(x, bucketCount) {
+        return Math.max(0, Math.min(bucketCount - 1, Math.floor(this.predict01(x) * bucketCount)));
+    }
+
+    train(x, target) {
+        target = Math.max(0, Math.min(1, target));
+        const y = this.predict01(x);
+        const dO = (target - y) * y * (1 - y);
+
+        for (let j = 0; j < this.hiddenSize; j++) {
+            const old = this.wHO[j];
+            this.wHO[j] += this.learningRate * dO * this.h[j];
+
+            const dH = dO * old * (1 - this.h[j] * this.h[j]);
+            const base = j * this.inputSize;
+
+            for (let i = 0; i < this.inputSize; i++) {
+                this.wIH[base + i] += this.learningRate * dH * (x[i] || 0);
+            }
+
+            this.bH[j] += this.learningRate * dH;
+        }
+
+        this.bO += this.learningRate * dO;
+    }
+}
+
+// Direct-address priority stack. Higher integer priority pops first.
+// A* compatibility: priority = (MAX_F - f) * tieBuckets + annTie.
+class AnnPriorityStack {
+    constructor(maxF = 65535, tieBuckets = 16, ann = null) {
+        this.maxF = maxF;
+        this.tieBuckets = tieBuckets;
+        this.ann = ann;
+        this.maxPriority = (maxF + 1) * tieBuckets - 1;
+
+        this.top = new Int32Array(this.maxPriority + 1).fill(-1);
+        this.count = new Int32Array(this.maxPriority + 1);
+
+        this.id = [];
+        this.element = [];
+        this.priority = [];
+        this.prev = [];
+        this.next = [];
+        this.free = [];
+        this.byId = new Map();
+
+        this.levels = [];
+        this._buildLevels(this.maxPriority + 1);
+
+        this.seq = 0;
+        this.predictions = 0;
+        this.trainingSamples = 0;
+    }
+
+    _buildLevels(n) {
+        for (let words = Math.ceil(n / 32); ; words = Math.ceil(words / 32)) {
+            this.levels.push(new Uint32Array(words));
+            if (words <= 1) break;
+        }
+    }
+
+    _set(p) {
+        let idx = p >>> 5;
+        this.levels[0][idx] |= 1 << (p & 31);
+
+        for (let l = 1; l < this.levels.length; l++) {
+            const parent = idx >>> 5;
+            this.levels[l][parent] |= 1 << (idx & 31);
+            idx = parent;
+        }
+    }
+
+    _clear(p) {
+        if (this.count[p] !== 0) return;
+
+        let idx = p >>> 5;
+        this.levels[0][idx] &= ~(1 << (p & 31));
+
+        for (let l = 1; l < this.levels.length; l++) {
+            if (this.levels[l - 1][idx] !== 0) break;
+
+            const parent = idx >>> 5;
+            this.levels[l][parent] &= ~(1 << (idx & 31));
+            idx = parent;
+        }
+    }
+
+    _highest() {
+        let idx = 0;
+
+        for (let l = this.levels.length - 1; l >= 0; l--) {
+            const word = this.levels[l][idx];
+            if (word === 0) return -1;
+            idx = (idx << 5) + 31 - Math.clz32(word);
+        }
+
+        return idx <= this.maxPriority ? idx : -1;
+    }
+
+    _makePriority(f, features = null, target = undefined) {
+        const fQ = Math.max(0, Math.min(this.maxF, Math.round(f)));
+        let tie = 0;
+
+        if (
+            this.ann &&
+            features &&
+            (_branchRankMode === "predict_tie" || _branchRankMode === "online_train")
+        ) {
+            tie = this.ann.bucket(features, this.tieBuckets);
+            this.predictions++;
+
+            // Preserve target support, but keep training out of the hot path by default.
+            if (_branchRankMode === "online_train" && target !== undefined) {
+                this.ann.train(features, target);
+                this.trainingSamples++;
+            }
+        }
+
+        return (this.maxF - fQ) * this.tieBuckets + tie;
+    }
+
+    enqueue(element, f, features = null, target = undefined) {
+        const id = element.queueId || `${element.side}:${element.canonicalStr}:${this.seq++}`;
+        const p = this._makePriority(f, features, target);
+
+        if (this.byId.has(id)) return this.update(id, element, f, features);
+
+        const n = this.free.length ? this.free.pop() : this.element.length;
+        const oldTop = this.top[p];
+
+        this.id[n] = id;
+        this.element[n] = element;
+        this.priority[n] = p;
+        this.prev[n] = -1;
+        this.next[n] = oldTop;
+
+        if (oldTop !== -1) this.prev[oldTop] = n;
+
+        this.top[p] = n;
+        this.count[p]++;
+        this.byId.set(id, n);
+        this._set(p);
+    }
+
+    update(id, element, f, features = null) {
+        this.remove(id);
+        element.queueId = id;
+        this.enqueue(element, f, features);
+    }
+
+    remove(id) {
+        const n = this.byId.get(id);
+        if (n === undefined) return null;
+
+        const p = this.priority[n];
+
+        if (this.prev[n] !== -1) this.next[this.prev[n]] = this.next[n];
+        else this.top[p] = this.next[n];
+
+        if (this.next[n] !== -1) this.prev[this.next[n]] = this.prev[n];
+
+        this.count[p]--;
+        this._clear(p);
+        this.byId.delete(id);
+
+        const out = this.element[n];
+        this.element[n] = null;
+        this.free.push(n);
+
+        return out;
+    }
+
     dequeue() {
-        if (this.isEmpty()) return undefined;
-        
-        const result = this.items[0];
-        const end = this.items.pop();
-        
-        if (this.items.length > 0) {
-            this.items[0] = end;
-            this._bubbleDown(0);
-        }
-        
-        return result?.element;
+        const p = this._highest();
+        if (p < 0) return undefined;
+        return this.remove(this.id[this.top[p]]);
     }
-    
+
     isEmpty() {
-        return this.items.length === 0;
+        return this._highest() < 0;
     }
-    
+
     size() {
-        return this.items.length;
+        return this.byId.size;
     }
-    
-    _bubbleUp(idx) {
-        const element = this.items[idx];
-        
-        while (idx > 0) {
-            const parentIdx = Math.floor((idx - 1) / 2);
-            const parent = this.items[parentIdx];
-            
-            if (this.compare(element, parent) >= 0) break;
-            
-            this.items[idx] = parent;
-            idx = parentIdx;
-        }
-        
-        this.items[idx] = element;
-    }
-    
-    _bubbleDown(idx) {
-        const element = this.items[idx];
-        const length = this.items.length;
-        
-        while (true) {
-            const leftChildIdx = 2 * idx + 1;
-            const rightChildIdx = 2 * idx + 2;
-            let swap = -1;
-            
-            if (leftChildIdx < length) {
-                const leftChild = this.items[leftChildIdx];
-                if (this.compare(leftChild, element) < 0) {
-                    swap = leftChildIdx;
-                }
-            }
-            
-            if (rightChildIdx < length) {
-                const rightChild = this.items[rightChildIdx];
-                if (this.compare(rightChild, element) < 0 && 
-                    this.compare(rightChild, this.items[leftChildIdx]) < 0) {
-                    swap = rightChildIdx;
-                }
-            }
-            
-            if (swap === -1) break;
-            
-            this.items[idx] = this.items[swap];
-            idx = swap;
-        }
-        
-        this.items[idx] = element;
-    }
+}
+
+function normRankValue(x, scale = 16) {
+    return Math.tanh((x || 0) / scale);
+}
+
+function makeBranchRankFeatures(rewrite, stateDepth) {
+    return new Float32Array([
+        normRankValue(rewrite.matrixScore),
+        normRankValue(rewrite.matrixImprovement),
+        normRankValue(rewrite.matrixOldScore),
+        Math.min(1, rewrite.length / 64),
+        Math.min(1, stateDepth / 128),
+        rewrite.direction === 'expand' ? 1 : 0,
+        rewrite.method === 'all' ? 1 : 0,
+        rewrite.side === 'rhs' ? 1 : 0
+    ]);
+}
+
+function branchRankTarget(rewrite) {
+    const base = Math.max(1, Math.abs(rewrite.matrixOldScore || 0));
+    return Math.max(0, Math.min(1, 0.5 + (rewrite.matrixImprovement || 0) / (2 * base)));
 }
 
 // Token index for fast axiom matching
@@ -1042,6 +1231,10 @@ function solveProblem() {
         States explored: ${result.stats.statesExplored}<br>
         Unique states: ${result.stats.uniqueStates}<br>
         Queue operations: ${result.stats.queueOps}<br>
+        OPEN queue: ${result.stats.openQueueMode}<br>
+        Branch rank mode: ${result.stats.branchRankMode}<br>
+        Branch ANN predictions: ${result.stats.branchAnnPredictions}<br>
+        Branch ANN training samples: ${result.stats.branchAnnTrainingSamples}<br>
         Search depth: ${result.stats.maxDepth}<br>
         Strategy: ${result.stats.strategy}<br>
         ANN mode: ${result.stats.annMode}<br>
@@ -1258,8 +1451,26 @@ function generateProofOptimized(axioms, proofStatement) {
     }
 
     // Bidirectional BFS search
-    const lhsQueue = new BinaryHeap();
-    const rhsQueue = new BinaryHeap();
+    const branchRankANN = _branchRankMode === "predict_tie"
+        ? new BranchRankANN(
+            8,
+            _branchRankHiddenSize,
+            _branchRankLearningRate,
+            _annSeed ^ 0x9e3779b9
+        )
+        : null;
+
+    const lhsQueue = new AnnPriorityStack(_priorityMaxF, _branchTieBuckets, branchRankANN);
+    const rhsQueue = new AnnPriorityStack(_priorityMaxF, _branchTieBuckets, branchRankANN);
+
+    function syncQueueStats() {
+        stats.openQueueMode = _openQueueMode;
+        stats.branchRankMode = _branchRankMode;
+        stats.branchAnnPredictions = lhsQueue.predictions + rhsQueue.predictions;
+        stats.branchAnnTrainingSamples = lhsQueue.trainingSamples + rhsQueue.trainingSamples;
+        return stats;
+    }
+
     const lhsVisited = new Map();
     const rhsVisited = new Map();
     
@@ -1563,8 +1774,22 @@ function generateProofOptimized(axioms, proofStatement) {
                 }
 
                 visited.set(newState.canonicalStr, newState);
-                queue.enqueue(newState, newState.getPriority(targetExpr));
+
+                const fScore = newState.getPriority(targetExpr);
+
+                if (_branchRankMode === "predict_tie") {
+                    queue.enqueue(
+                        newState,
+                        fScore,
+                        makeBranchRankFeatures(rewrite, newState.depth)
+                    );
+                } else {
+                    queue.enqueue(newState, fScore);
+                }
+
+                syncQueueStats();
                 stats.queueOps++;
+
                 stats.uniqueStates = visited.size + otherVisited.size;
             }
         }
