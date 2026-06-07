@@ -15,65 +15,10 @@
  * 
  */
 
-// ANN axiom-address dispatch configuration.
-// "off"                 -> original token-index/rule-index path only.
-// "ann_first"           -> ANN-selected axioms first, then deterministic fallback.
-// "ann_ranked_fallback" -> deterministic fallback candidates, ranked by ANN preference.
-// "ann_only"            -> ANN-selected axioms only; fastest, but may miss proofs.
-const _annDispatchMode = "off"; // "off", "ann_first", "ann_ranked_fallback", "ann_only" //
-
-// Other ANN default configs.
-const _annHiddenSize = 128;
-const _annLearningRate = 0.03;
-const _annSeed = 42;
 const _bidirectionalFastForwardFlag = true;
 
 // Hot-loop diagnostics. Keep false for benchmarking.
 const _debugProofHistoryFlag = false;
-
-// Predict both rewrite directions when ANN mode is enabled.
-// 0 => expansion-preference context
-// 1 => reduction-preference context
-const _annPredictionDirections = [0, 1];
-
-// Maximum contiguous expression window used for ANN axiom-address prediction.
-const _annMaxWindowLength = 12;
-
-// Prediction-cache cap. Prevents unbounded Map growth during large searches.
-const _annPredictionCacheLimit = 4096;
-
-/** Example Usage */
-/* 
-const axiomCount = 100_000;
-
-const ann = new AxiomAddressANN({
-  inputSize: 4,
-  hiddenSize: 64,
-  axiomCount,
-  learningRate: 0.03,
-  seed: 42
-});
-
-const samples = [
-    // t[+ 1 2 4 ] //
-  { t: [1, 2, 0, 0], i: 0 },
-  { t: [0, 0, 1, 0], i: 0 },
-  { t: [1, 0, 2, 0], i: 1 },
-  { t: [0, 0, 0, 1], i: 1 }
-];
-
-ann.train(samples, { epochs: 5000 });
-
-// 1 + 1 + 1 + 1
-const t = [3, 4, 0, 0];
-
-// 1 + 1 + 1 + 1
-//const t = [0, 0, 0, 1];
-
-const result = ann.predictAddress( t );
-
-console.log(result);
-*/
 
 let _tokenStore = null;
 
@@ -125,10 +70,6 @@ class TokenStore {
     }
 }
 
-function tokenText(token) {
-    return _tokenStore ? _tokenStore.decode(token) : String(token);
-}
-
 function exprToString(expr) {
     return _tokenStore ? _tokenStore.exprToString(expr) : expr.join(' ');
 }
@@ -137,518 +78,6 @@ function isPatternToken(token) {
     return _tokenStore
         ? _tokenStore.isPatternId(token)
         : String(token).startsWith('?');
-}
-
-function normalizeAxiomToken(token) {
-    const text = tokenText(token);
-    return text && text.startsWith('?') ? '?VAR' : text;
-}
-
-function stableHashString(s) {
-    let h = 2166136261;
-
-    for (let i = 0; i < s.length; i++) {
-        h ^= s.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-    }
-
-    return (h >>> 0).toString(16);
-}
-
-function getRequiredAddressBits(n) {
-    if (typeof requiredAddressBits === 'function') {
-        return requiredAddressBits(n);
-    }
-
-    return Math.max(1, Math.ceil(Math.log2(Math.max(1, n))));
-}
-
-function chooseAnnEpochs(sampleCount, axiomCount) {
-    if (axiomCount > 50000) return 2;
-    if (axiomCount > 10000) return 4;
-    if (axiomCount > 1000) return 24;
-    if (sampleCount > 5000) return 64;
-    return 256;
-}
-
-// ANN feature-compiler. This pre-parses all axiom/proof tokens and computes the correct ANN.inputSize param.
-class AxiomFeatureCompiler {
-    constructor(axioms, proofStatement) {
-        this.vocab = [];
-        this.tokenToIndex = new Map();
-        this.maxSubnetLength = 1;
-
-        this._buildVocabulary(axioms, proofStatement);
-
-        this.directionOffset = this.vocab.length;
-        this.lengthOffset = this.directionOffset + 1;
-        this.uniqueOffset = this.directionOffset + 2;
-        this.patternOffset = this.directionOffset + 3;
-
-        this.inputSize = this.vocab.length + 4;
-    }
-
-    _addToken(token) {
-        const key = normalizeAxiomToken(token);
-
-        if (!this.tokenToIndex.has(key)) {
-            this.tokenToIndex.set(key, this.vocab.length);
-            this.vocab.push(key);
-        }
-    }
-
-    _scanSubnet(subnet) {
-        if (!Array.isArray(subnet)) return;
-
-        this.maxSubnetLength = Math.max(this.maxSubnetLength, subnet.length);
-
-        for (const token of subnet) {
-            this._addToken(token);
-        }
-    }
-
-    _buildVocabulary(axioms, proofStatement) {
-        for (const axiom of axioms) {
-            for (const subnet of axiom.subnets) {
-                this._scanSubnet(subnet);
-            }
-        }
-
-        if (proofStatement) {
-            for (const subnet of proofStatement.subnets) {
-                this._scanSubnet(subnet);
-            }
-        }
-    }
-
-    encode(tokens, direction = 0) {
-        const t = new Float32Array(this.inputSize);
-        const unique = new Set();
-        let hasPattern = 0;
-
-        for (const rawToken of tokens) {
-            const token = normalizeAxiomToken(rawToken);
-            const idx = this.tokenToIndex.get(token);
-
-            if (idx !== undefined) {
-                t[idx] += 1;
-                unique.add(idx);
-            }
-
-            if (token === '?VAR') {
-                hasPattern = 1;
-            }
-        }
-
-        t[this.directionOffset] = direction;
-        t[this.lengthOffset] = tokens.length;
-        t[this.uniqueOffset] = unique.size;
-        t[this.patternOffset] = hasPattern;
-
-        return t;
-    }
-
-    fingerprint() {
-        return stableHashString(
-            this.vocab.join('\u001f') +
-            `|${this.inputSize}|${this.maxSubnetLength}`
-        );
-    }
-}
-
-class NeuralAxiomDispatcher {
-    constructor({ axioms, proofStatement, hiddenSize, learningRate, seed }) {
-        this.axioms = axioms;
-        this.compiler = new AxiomFeatureCompiler(axioms, proofStatement);
-
-        this.hiddenSize = hiddenSize;
-        this.learningRate = learningRate;
-        this.seed = seed;
-
-        this.ann = null;
-        this.lastLoss = null;
-        this.trainingMs = 0;
-        this.predictionCache = new Map();
-
-        this.stats = {
-            annInputSize: this.compiler.inputSize,
-            annAddressBits: getRequiredAddressBits(Math.max(1, axioms.length)),
-            annDispatchHits: 0,
-            annDispatchMisses: 0,
-            annFallbackUsefulHits: 0,
-            annReplaySamples: 0,
-            annTrainingSamples: 0,
-            annTrainingEpochs: 0,
-            annTrainingMs: 0,
-            annPredictions: 0,
-            annValidPredictions: 0,
-            annCacheHits: 0,
-            annFallbackScans: 0,
-            annMode: _annDispatchMode
-        };
-    }
-
-    addRuntimeSample(expr, axiomIndex, direction = 0) {
-        if (!Number.isInteger(axiomIndex)) return;
-        if (axiomIndex < 0 || axiomIndex >= this.axioms.length) return;
-        if (!this.ann) return;
-
-        this.runtimeSamples ??= [];
-        this.runtimeSampleKeys ??= new Set();
-
-        const key = `${expr.join(' ')}|${direction}|${axiomIndex}`;
-
-        if (this.runtimeSampleKeys.has(key)) return;
-
-        this.runtimeSampleKeys.add(key);
-
-        this.runtimeSamples.push({
-            t: this.compiler.encode(expr, direction),
-            i: axiomIndex
-        });
-
-        this.stats.annReplaySamples = this.runtimeSamples.length;
-    }
-
-    build() {
-        if (_annDispatchMode === "off" || this.axioms.length === 0) {
-            return this;
-        }
-
-        if (typeof AxiomAddressANN !== 'function') {
-            console.warn('AxiomAddressANN is not available; ANN dispatch disabled.');
-            return this;
-        }
-
-        for (let i = 0; i < this.axioms.length; i++) {
-            this.axioms[i].nnIndex = i;
-        }
-
-        const samples = this._buildTrainingSamples();
-
-        this.stats.annTrainingSamples = samples.length;
-        this.stats.annTrainingEpochs = chooseAnnEpochs(
-            samples.length,
-            this.axioms.length
-        );
-
-        this.ann = this._loadCachedModel();
-
-        if (this.ann) {
-            return this;
-        }
-
-        const t0 = performance.now();
-
-        this.ann = new AxiomAddressANN({
-            inputSize: this.compiler.inputSize,
-            hiddenSize: this.hiddenSize,
-            axiomCount: this.axioms.length,
-            learningRate: this.learningRate,
-            seed: this.seed
-        });
-
-        this.lastLoss = this.ann.train(samples, {
-            epochs: this.stats.annTrainingEpochs,
-            shuffle: true
-        });
-
-        this.trainingMs = performance.now() - t0;
-        this.stats.annTrainingMs = this.trainingMs;
-
-        this._saveCachedModel();
-
-        return this;
-    }
-
-    _buildTrainingSamples() {
-        const samples = [];
-        const sampleKeys = new Set();
-
-        const addSample = (tokens, axiomIndex, direction) => {
-            if (!Array.isArray(tokens) || tokens.length === 0) return;
-
-            const key = `${axiomIndex}|${direction}|${tokens.join(' ')}`;
-
-            if (sampleKeys.has(key)) return;
-
-            sampleKeys.add(key);
-
-            samples.push({
-                t: this.compiler.encode(tokens, direction),
-                i: axiomIndex
-            });
-        };
-
-        const addWindowSamples = (tokens, axiomIndex, direction) => {
-            if (!Array.isArray(tokens) || tokens.length === 0) return;
-
-            const maxWindow = Math.min(
-                _annMaxWindowLength,
-                this.compiler.maxSubnetLength,
-                tokens.length
-            );
-
-            for (let len = 1; len <= maxWindow; len++) {
-                for (let start = 0; start <= tokens.length - len; start++) {
-                    addSample(tokens.slice(start, start + len), axiomIndex, direction);
-                }
-            }
-        };
-
-        for (let i = 0; i < this.axioms.length; i++) {
-            const axiom = this.axioms[i];
-            const [a, b] = axiom.subnets;
-
-            if (Array.isArray(a)) {
-                addSample(a, i, 0);
-                addSample(a, i, 1);
-                addWindowSamples(a, i, 0);
-                addWindowSamples(a, i, 1);
-            }
-
-            if (Array.isArray(b)) {
-                addSample(b, i, 0);
-                addSample(b, i, 1);
-                addWindowSamples(b, i, 0);
-                addWindowSamples(b, i, 1);
-            }
-
-            if (Array.isArray(a) && Array.isArray(b)) {
-                const joined = [...a, ...b];
-
-                addSample(joined, i, 0);
-                addSample(joined, i, 1);
-                addWindowSamples(joined, i, 0);
-                addWindowSamples(joined, i, 1);
-            }
-        }
-
-        return samples;
-    }
-
-    _cacheKey() {
-        const axiomSignature = this.axioms
-            .map(ax => ax.subnets.map(s => s.join(' ')).join('='))
-            .join('\n');
-
-        const h = stableHashString(
-            axiomSignature +
-            this.compiler.fingerprint()
-        );
-
-        return `ANN_AXIOM_SELECTOR_V4:${h}:${this.compiler.inputSize}:${this.hiddenSize}:${this.axioms.length}`;
-    }
-
-    _loadCachedModel() {
-        try {
-            if (typeof localStorage === 'undefined') return null;
-            if (typeof AxiomAddressANN !== 'function') return null;
-
-            const raw = localStorage.getItem(this._cacheKey());
-            if (!raw) return null;
-
-            const data = JSON.parse(raw);
-
-            if (
-                data.inputSize !== this.compiler.inputSize ||
-                data.hiddenSize !== this.hiddenSize ||
-                data.axiomCount !== this.axioms.length
-            ) {
-                return null;
-            }
-
-            return AxiomAddressANN.fromJSON(data);
-        } catch (_) {
-            return null;
-        }
-    }
-
-    _saveCachedModel() {
-        try {
-            if (typeof localStorage === 'undefined' || !this.ann) return;
-
-            localStorage.setItem(
-                this._cacheKey(),
-                JSON.stringify(this.ann.toJSON())
-            );
-        } catch (_) {
-            // localStorage quota can be exceeded for large vocabularies.
-            // Keep the in-memory model and continue.
-        }
-    }
-
-    getPredictedAxioms(expr) {
-        if (!this.ann || this.axioms.length === 0) {
-            return [];
-        }
-
-        const key = expr.join(' ');
-        const cached = this.predictionCache.get(key);
-
-        if (cached) {
-            this.stats.annCacheHits++;
-            return cached;
-        }
-
-        const selected = new Map();
-        const seenWindows = new Set();
-
-        const maxWindow = Math.min(
-            _annMaxWindowLength,
-            this.compiler.maxSubnetLength,
-            expr.length
-        );
-
-        const recordPrediction = (prediction) => {
-            this.stats.annPredictions++;
-
-            if (!prediction.valid) return;
-
-            this.stats.annValidPredictions++;
-
-            const axiom = this.axioms[prediction.i];
-
-            if (axiom && !selected.has(prediction.i)) {
-                selected.set(prediction.i, axiom);
-            }
-        };
-
-        const predictWindow = (tokens) => {
-            for (const direction of _annPredictionDirections) {
-                const windowKey = `${direction}|${tokens.join(' ')}`;
-
-                if (seenWindows.has(windowKey)) continue;
-
-                seenWindows.add(windowKey);
-
-                recordPrediction(
-                    this.ann.predictAddress(
-                        this.compiler.encode(tokens, direction)
-                    )
-                );
-            }
-        };
-
-        predictWindow(expr);
-
-        for (let len = 1; len <= maxWindow; len++) {
-            for (let start = 0; start <= expr.length - len; start++) {
-                predictWindow(expr.slice(start, start + len));
-            }
-        }
-
-        const result = Array.from(selected.values());
-
-        if (this.predictionCache.size > _annPredictionCacheLimit) {
-            this.predictionCache.clear();
-        }
-
-        this.predictionCache.set(key, result);
-
-        return result;
-    }
-
-    rankRules(expr, fallbackRules) {
-        const predicted = this.getPredictedAxioms(expr);
-
-        if (!this.ann) {
-            return fallbackRules;
-        }
-
-        const fallbackAxiomSet = new Set(
-            fallbackRules.map(rule => rule.nnIndex)
-        );
-
-        let hit = false;
-
-        for (const axiom of predicted) {
-            const key = axiom.nnIndex ?? axiom.axiomID;
-
-            if (fallbackAxiomSet.has(key)) {
-                hit = true;
-                break;
-            }
-        }
-
-        if (predicted.length > 0) {
-            if (hit) {
-                this.stats.annDispatchHits++;
-            } else {
-                this.stats.annDispatchMisses++;
-            }
-        }
-
-        if (!hit && fallbackRules.length > 0) {
-            this.stats.annFallbackUsefulHits++;
-        }
-
-        if (_annDispatchMode === "ann_only") {
-            const predictedSet = new Set(predicted.map(axiom => axiom.nnIndex));
-            return fallbackRules.filter(rule => predictedSet.has(rule.nnIndex));
-        }
-
-        if (_annDispatchMode === "ann_ranked_fallback") {
-            const rank = new Map();
-
-            for (let i = 0; i < predicted.length; i++) {
-                const key = predicted[i].nnIndex ?? predicted[i].axiomID;
-
-                if (!rank.has(key)) {
-                    rank.set(key, i);
-                }
-            }
-
-            return fallbackRules
-                .map((rule, originalIndex) => ({
-                    rule,
-                    originalIndex,
-                    rank: rank.has(rule.nnIndex)
-                        ? rank.get(rule.nnIndex)
-                        : Number.POSITIVE_INFINITY
-                }))
-                .sort((a, b) => {
-                    if (a.rank !== b.rank) return a.rank - b.rank;
-                    return a.originalIndex - b.originalIndex;
-                })
-                .map(item => item.rule);
-        }
-
-        if (_annDispatchMode === "ann_first") {
-            const predictedSet = new Set(predicted.map(axiom => axiom.nnIndex));
-            const first = [];
-            const rest = [];
-
-            for (const rule of fallbackRules) {
-                if (predictedSet.has(rule.nnIndex)) {
-                    first.push(rule);
-                } else {
-                    rest.push(rule);
-                }
-            }
-
-            return [...first, ...rest];
-        }
-
-        return fallbackRules;
-    }
-
-    trainReplaySamples() {
-        if (!this.ann) return;
-        if (!this.runtimeSamples || this.runtimeSamples.length === 0) return;
-
-        const epochs = Math.min(
-            64,
-            Math.max(8, Math.ceil(512 / this.runtimeSamples.length))
-        );
-
-        this.ann.train(this.runtimeSamples, {
-            epochs,
-            shuffle: true
-        });
-
-        this._saveCachedModel();
-    }
 }
 
 // MAIN //
@@ -822,7 +251,6 @@ function compileRewriteRules(axioms) {
 
             axiomID: axiom.axiomID,
             guidZ: axiom.guidZ,
-            nnIndex: axiomIndex,
 
             from,
             to,
@@ -834,6 +262,8 @@ function compileRewriteRules(axioms) {
             anchorOffset: anchor?.offset ?? -1,
             direction: to.length > from.length ? 'expand' : 'reduce',
 
+            requiredFromTally: makeRuleRequiredTally(from),
+
             // Optional trace metadata.
             orientation,
             sourceLine: axiom.sourceLine,
@@ -843,8 +273,6 @@ function compileRewriteRules(axioms) {
 
     for (let i = 0; i < axioms.length; i++) {
         const axiom = axioms[i];
-        axiom.nnIndex = i;
-
         const [a, b] = axiom.subnets;
 
         if (Array.isArray(a) && Array.isArray(b)) {
@@ -931,6 +359,63 @@ class HeuristicCache {
     set(expr1, expr2, value) {
         this.cache.set(this.getKey(expr1, expr2), value);
     }
+}
+
+function buildPositionIndexAndTally(expr) {
+    const positionIndex = new Map();
+    const tally = new Int16Array(_tokenStore.idToToken.length);
+
+    for (let i = 0; i < expr.length; i++) {
+        const token = expr[i];
+
+        tally[token]++;
+
+        let positions = positionIndex.get(token);
+
+        if (!positions) {
+            positions = [];
+            positionIndex.set(token, positions);
+        }
+
+        positions.push(i);
+    }
+
+    return {
+        positionIndex,
+        tally
+    };
+}
+
+function makeRuleRequiredTally(tokens) {
+    const counts = new Map();
+
+    for (const token of tokens) {
+        if (isPatternToken(token)) continue;
+
+        counts.set(token, (counts.get(token) || 0) + 1);
+    }
+
+    const required = [];
+
+    for (const [token, count] of counts) {
+        required.push({ token, count });
+    }
+
+    return required;
+}
+
+function tallyContainsRule(exprTally, exprLength, rule) {
+    if (rule.fromLen > exprLength) {
+        return false;
+    }
+
+    for (const req of rule.requiredFromTally) {
+        if ((exprTally[req.token] || 0) < req.count) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function buildPositionIndex(expr) {
@@ -1105,7 +590,6 @@ function* matchRuleOccurrences(expr, rule, positionIndex) {
 
 let heuristicCache;
 let rewriteRuleIndex;
-let annDispatcher;
 let proofHistory = [];
 
 function solveProblem() {
@@ -1117,14 +601,6 @@ function solveProblem() {
 
     const rewriteRules = compileRewriteRules(axioms);
     rewriteRuleIndex = new RewriteRuleIndex(rewriteRules);
-
-    annDispatcher = new NeuralAxiomDispatcher({
-        axioms,
-        proofStatement,
-        hiddenSize: _annHiddenSize,
-        learningRate: _annLearningRate,
-        seed: _annSeed
-    }).build();
 
     const result = generateProofOptimized(axioms, proofStatement);
     const endTime = performance.now();
@@ -1144,32 +620,13 @@ function solveProblem() {
         Position-index builds: ${result.stats.positionIndexBuilds}<br>
         Rule match attempts: ${result.stats.ruleMatchAttempts}<br>
         Rewrite candidates yielded: ${result.stats.rewriteCandidatesYielded}<br>
+        Rule-index scans: ${result.stats.ruleIndexScans}<br>
         Debug proof history: ${_debugProofHistoryFlag ? 'on' : 'off'}<br>
-        ANN mode: ${result.stats.annMode}<br>
-        ANN inputSize: ${result.stats.annInputSize}<br>
-        ANN address bits: ${result.stats.annAddressBits}<br>
-        ANN dispatch hits: ${result.stats.annDispatchHits}<br>
-        ANN dispatch misses: ${result.stats.annDispatchMisses}<br>
-        ANN fallback useful hits: ${result.stats.annFallbackUsefulHits}<br>
-        ANN replay samples: ${result.stats.annReplaySamples}<br>
-        ANN training samples: ${result.stats.annTrainingSamples}<br>
-        ANN training epochs: ${result.stats.annTrainingEpochs}<br>
-        ANN training time: ${result.stats.annTrainingMs.toFixed(4)} ms<br>
-        ANN bitfield predictions: ${result.stats.annPredictions}<br>
-        ANN valid bitfield predictions: ${result.stats.annValidPredictions}<br>
-        ANN cache hits: ${result.stats.annCacheHits}<br>
-        ANN fallback scans: ${result.stats.annFallbackScans}<br>
+        Tally rule rejects: ${result.stats.tallyRuleRejects}<br>
+        Tally rule passes: ${result.stats.tallyRulePasses}<br>
         Final proof steps: ${result.stats.proofSteps}<br>
         Debug history records: ${proofHistory.length}
     `;
-
-    if (
-        annDispatcher &&
-        result.proof.includes("Proof Found!") &&
-        annDispatcher.runtimeSamples?.length > 0
-    ) {
-        annDispatcher.trainReplaySamples();
-    }
 
     if (!result.proof.includes("Proof Found!") && _debugProofHistoryFlag && proofHistory.length > 0) {
         _output.value += "\n\n=== Partial Proof History ===\n";
@@ -1263,54 +720,14 @@ function generateProofOptimized(axioms, proofStatement) {
         rewriteCandidatesYielded: 0,
         proofSteps: 0,
 
-        annMode: annDispatcher?.stats.annMode ?? "off",
-        annInputSize: annDispatcher?.stats.annInputSize ?? 0,
-        annAddressBits: annDispatcher?.stats.annAddressBits ?? 0,
-        annTrainingSamples: annDispatcher?.stats.annTrainingSamples ?? 0,
-        annTrainingEpochs: annDispatcher?.stats.annTrainingEpochs ?? 0,
-        annTrainingMs: annDispatcher?.stats.annTrainingMs ?? 0,
+        ruleIndexScans: 0,
 
-        annDispatchHits: annDispatcher?.stats.annDispatchHits ?? 0,
-        annDispatchMisses: annDispatcher?.stats.annDispatchMisses ?? 0,
-        annFallbackUsefulHits: annDispatcher?.stats.annFallbackUsefulHits ?? 0,
-        annReplaySamples: annDispatcher?.stats.annReplaySamples ?? 0,
-
-        annPredictions: annDispatcher?.stats.annPredictions ?? 0,
-        annValidPredictions: annDispatcher?.stats.annValidPredictions ?? 0,
-        annCacheHits: annDispatcher?.stats.annCacheHits ?? 0,
-        annFallbackScans: annDispatcher?.stats.annFallbackScans ?? 0,
+        tallyRuleRejects: 0,
+        tallyRulePasses: 0,
 
         meetChecks: 0,
         fastForwardHits: 0
     };
-
-    function syncAnnStats() {
-        const s = annDispatcher?.stats;
-        if (!s) return stats;
-
-        stats.annMode = s.annMode ?? stats.annMode;
-        stats.annInputSize = s.annInputSize ?? stats.annInputSize;
-        stats.annAddressBits = s.annAddressBits ?? stats.annAddressBits;
-        stats.annTrainingSamples = s.annTrainingSamples ?? stats.annTrainingSamples;
-        stats.annTrainingEpochs = s.annTrainingEpochs ?? stats.annTrainingEpochs;
-        stats.annTrainingMs = s.annTrainingMs ?? stats.annTrainingMs;
-
-        stats.annDispatchHits = s.annDispatchHits ?? 0;
-        stats.annDispatchMisses = s.annDispatchMisses ?? 0;
-        stats.annFallbackUsefulHits = s.annFallbackUsefulHits ?? 0;
-        stats.annReplaySamples = s.annReplaySamples ?? 0;
-
-        stats.annPredictions = s.annPredictions ?? 0;
-        stats.annValidPredictions = s.annValidPredictions ?? 0;
-        stats.annCacheHits = s.annCacheHits ?? 0;
-
-        stats.annFallbackScans = Math.max(
-            stats.annFallbackScans ?? 0,
-            s.annFallbackScans ?? 0
-        );
-
-        return stats;
-    }
 
     if (lhsStr === rhsStr) {
         stats.proofSteps = 1;
@@ -1448,33 +865,26 @@ function generateProofOptimized(axioms, proofStatement) {
     }
 
     function* generateRewrites(expr, side) {
-        const positionIndex = buildPositionIndex(expr);
+        const indexed = buildPositionIndexAndTally(expr);
+        const positionIndex = indexed.positionIndex;
+        const exprTally = indexed.tally;
         stats.positionIndexBuilds++;
 
-        let relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
-        stats.annFallbackScans++;
-
-        if (annDispatcher) {
-            annDispatcher.stats.annFallbackScans++;
-            relevantRules = annDispatcher.rankRules(expr, relevantRules);
-        }
-
-        syncAnnStats();
+        const relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
+        stats.ruleIndexScans++;
 
         for (const rule of relevantRules) {
+            if (!tallyContainsRule(exprTally, expr.length, rule)) {
+                stats.tallyRuleRejects++;
+                continue;
+            }
+
+            stats.tallyRulePasses++;
             stats.ruleMatchAttempts++;
 
             for (const occurrence of matchRuleOccurrences(expr, rule, positionIndex)) {
                 const resultExpr = occurrence.resultExpr || replaceAt(expr, rule.from, occurrence.to, occurrence.position);
                 stats.rewriteCandidatesYielded++;
-
-                if (annDispatcher && Number.isInteger(rule.nnIndex)) {
-                    annDispatcher.addRuntimeSample(
-                        expr,
-                        rule.nnIndex,
-                        rule.direction === 'expand' ? 0 : 1
-                    );
-                }
 
                 yield {
                     expr: resultExpr,
@@ -1507,7 +917,7 @@ function generateProofOptimized(axioms, proofStatement) {
                 const otherState = otherVisited.get(current.canonicalStr);
                 return {
                     proof: constructProof(current, otherState),
-                    stats: syncAnnStats()
+                    stats
                 };
             }
             
@@ -1539,7 +949,7 @@ function generateProofOptimized(axioms, proofStatement) {
                 if (proof) {
                     return {
                         proof,
-                        stats: syncAnnStats()
+                        stats
                     };
                 }
 
@@ -1553,7 +963,7 @@ function generateProofOptimized(axioms, proofStatement) {
     
     return {
         proof: "No proof found within search limits.",
-        stats: syncAnnStats()
+        stats
     };
 }
 
