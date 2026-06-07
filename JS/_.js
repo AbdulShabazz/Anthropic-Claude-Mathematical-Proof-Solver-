@@ -16,19 +16,22 @@
  */
 
 // ANN axiom-address dispatch configuration.
-// "off"                 -> original token-index path only.
+// "off"                 -> original token-index/rule-index path only.
 // "ann_first"           -> ANN-selected axioms first, then deterministic fallback.
 // "ann_ranked_fallback" -> deterministic fallback candidates, ranked by ANN preference.
 // "ann_only"            -> ANN-selected axioms only; fastest, but may miss proofs.
 const _annDispatchMode = "off"; // "off", "ann_first", "ann_ranked_fallback", "ann_only" //
 
-// Other ANN default configs
+// Other ANN default configs.
 const _annHiddenSize = 128;
 const _annLearningRate = 0.03;
 const _annSeed = 42;
 const _bidirectionalFastForwardFlag = true;
 
-// Predict both rewrite directions:
+// Hot-loop diagnostics. Keep false for benchmarking.
+const _debugProofHistoryFlag = false;
+
+// Predict both rewrite directions when ANN mode is enabled.
 // 0 => expansion-preference context
 // 1 => reduction-preference context
 const _annPredictionDirections = [0, 1];
@@ -39,9 +42,73 @@ const _annMaxWindowLength = 12;
 // Prediction-cache cap. Prevents unbounded Map growth during large searches.
 const _annPredictionCacheLimit = 4096;
 
-// Add prover-side ANN helper functions (Place after your existing utility functions, or before BinaryHeap.)
+let _tokenStore = null;
+
+class TokenStore {
+    constructor() {
+        this.tokenToId = new Map();
+        this.idToToken = [];
+        this.patternIds = new Set();
+    }
+
+    intern(rawToken) {
+        const token = String(rawToken);
+        let id = this.tokenToId.get(token);
+
+        if (id !== undefined) return id;
+
+        id = this.idToToken.length;
+        this.tokenToId.set(token, id);
+        this.idToToken.push(token);
+
+        if (token.startsWith('?')) {
+            this.patternIds.add(id);
+        }
+
+        return id;
+    }
+
+    encodeTokens(text) {
+        const tokens = String(text).match(/\S+/g) || [];
+        return tokens.map(token => this.intern(token));
+    }
+
+    decode(id) {
+        if (typeof id === 'number') {
+            return this.idToToken[id] ?? String(id);
+        }
+
+        return String(id);
+    }
+
+    exprToString(expr) {
+        return expr.map(token => this.decode(token)).join(' ');
+    }
+
+    isPatternId(token) {
+        return typeof token === 'number'
+            ? this.patternIds.has(token)
+            : String(token).startsWith('?');
+    }
+}
+
+function tokenText(token) {
+    return _tokenStore ? _tokenStore.decode(token) : String(token);
+}
+
+function exprToString(expr) {
+    return _tokenStore ? _tokenStore.exprToString(expr) : expr.join(' ');
+}
+
+function isPatternToken(token) {
+    return _tokenStore
+        ? _tokenStore.isPatternId(token)
+        : String(token).startsWith('?');
+}
+
 function normalizeAxiomToken(token) {
-    return token && token.startsWith('?') ? '?VAR' : token;
+    const text = tokenText(token);
+    return text && text.startsWith('?') ? '?VAR' : text;
 }
 
 function stableHashString(s) {
@@ -55,6 +122,14 @@ function stableHashString(s) {
     return (h >>> 0).toString(16);
 }
 
+function getRequiredAddressBits(n) {
+    if (typeof requiredAddressBits === 'function') {
+        return requiredAddressBits(n);
+    }
+
+    return Math.max(1, Math.ceil(Math.log2(Math.max(1, n))));
+}
+
 function chooseAnnEpochs(sampleCount, axiomCount) {
     if (axiomCount > 50000) return 2;
     if (axiomCount > 10000) return 4;
@@ -64,7 +139,6 @@ function chooseAnnEpochs(sampleCount, axiomCount) {
 }
 
 // ANN feature-compiler. This pre-parses all axiom/proof tokens and computes the correct ANN.inputSize param.
-
 class AxiomFeatureCompiler {
     constructor(axioms, proofStatement) {
         this.vocab = [];
@@ -149,8 +223,6 @@ class AxiomFeatureCompiler {
     }
 }
 
-// ANN Dispatcher
-
 class NeuralAxiomDispatcher {
     constructor({ axioms, proofStatement, hiddenSize, learningRate, seed }) {
         this.axioms = axioms;
@@ -167,7 +239,7 @@ class NeuralAxiomDispatcher {
 
         this.stats = {
             annInputSize: this.compiler.inputSize,
-            annAddressBits: requiredAddressBits(Math.max(1, axioms.length)),
+            annAddressBits: getRequiredAddressBits(Math.max(1, axioms.length)),
             annDispatchHits: 0,
             annDispatchMisses: 0,
             annFallbackUsefulHits: 0,
@@ -179,10 +251,6 @@ class NeuralAxiomDispatcher {
             annValidPredictions: 0,
             annCacheHits: 0,
             annFallbackScans: 0,
-            openQueueMode: _openQueueMode,
-            branchRankMode: _branchRankMode,
-            branchAnnPredictions: 0,
-            branchAnnTrainingSamples: 0,
             annMode: _annDispatchMode
         };
     }
@@ -190,6 +258,7 @@ class NeuralAxiomDispatcher {
     addRuntimeSample(expr, axiomIndex, direction = 0) {
         if (!Number.isInteger(axiomIndex)) return;
         if (axiomIndex < 0 || axiomIndex >= this.axioms.length) return;
+        if (!this.ann) return;
 
         this.runtimeSamples ??= [];
         this.runtimeSampleKeys ??= new Set();
@@ -210,6 +279,11 @@ class NeuralAxiomDispatcher {
 
     build() {
         if (_annDispatchMode === "off" || this.axioms.length === 0) {
+            return this;
+        }
+
+        if (typeof AxiomAddressANN !== 'function') {
+            console.warn('AxiomAddressANN is not available; ANN dispatch disabled.');
             return this;
         }
 
@@ -293,8 +367,6 @@ class NeuralAxiomDispatcher {
             const axiom = this.axioms[i];
             const [a, b] = axiom.subnets;
 
-            // Train both orientations because parseInput sorts subnet length,
-            // while proof search may use either subnet as the active rewrite source.
             if (Array.isArray(a)) {
                 addSample(a, i, 0);
                 addSample(a, i, 1);
@@ -309,7 +381,6 @@ class NeuralAxiomDispatcher {
                 addWindowSamples(b, i, 1);
             }
 
-            // Context sample: helps the ANN associate both sides with the same address.
             if (Array.isArray(a) && Array.isArray(b)) {
                 const joined = [...a, ...b];
 
@@ -333,12 +404,13 @@ class NeuralAxiomDispatcher {
             this.compiler.fingerprint()
         );
 
-        return `ANN_AXIOM_SELECTOR_V3:${h}:${this.compiler.inputSize}:${this.hiddenSize}:${this.axioms.length}`;
+        return `ANN_AXIOM_SELECTOR_V4:${h}:${this.compiler.inputSize}:${this.hiddenSize}:${this.axioms.length}`;
     }
 
     _loadCachedModel() {
         try {
             if (typeof localStorage === 'undefined') return null;
+            if (typeof AxiomAddressANN !== 'function') return null;
 
             const raw = localStorage.getItem(this._cacheKey());
             if (!raw) return null;
@@ -425,10 +497,8 @@ class NeuralAxiomDispatcher {
             }
         };
 
-        // Whole expression.
         predictWindow(expr);
 
-        // Contiguous windows.
         for (let len = 1; len <= maxWindow; len++) {
             for (let start = 0; start <= expr.length - len; start++) {
                 predictWindow(expr.slice(start, start + len));
@@ -446,11 +516,15 @@ class NeuralAxiomDispatcher {
         return result;
     }
 
-    mergePredictedWithFallback(expr, fallbackAxioms) {
+    rankRules(expr, fallbackRules) {
         const predicted = this.getPredictedAxioms(expr);
 
-        const fallbackSet = new Set(
-            fallbackAxioms.map(ax => ax.nnIndex ?? ax.axiomID)
+        if (!this.ann) {
+            return fallbackRules;
+        }
+
+        const fallbackAxiomSet = new Set(
+            fallbackRules.map(rule => rule.nnIndex)
         );
 
         let hit = false;
@@ -458,7 +532,7 @@ class NeuralAxiomDispatcher {
         for (const axiom of predicted) {
             const key = axiom.nnIndex ?? axiom.axiomID;
 
-            if (fallbackSet.has(key)) {
+            if (fallbackAxiomSet.has(key)) {
                 hit = true;
                 break;
             }
@@ -472,12 +546,13 @@ class NeuralAxiomDispatcher {
             }
         }
 
-        if (!hit && fallbackAxioms.length > 0) {
+        if (!hit && fallbackRules.length > 0) {
             this.stats.annFallbackUsefulHits++;
         }
 
         if (_annDispatchMode === "ann_only") {
-            return predicted;
+            const predictedSet = new Set(predicted.map(axiom => axiom.nnIndex));
+            return fallbackRules.filter(rule => predictedSet.has(rule.nnIndex));
         }
 
         if (_annDispatchMode === "ann_ranked_fallback") {
@@ -491,43 +566,38 @@ class NeuralAxiomDispatcher {
                 }
             }
 
-            return fallbackAxioms
-                .map((axiom, originalIndex) => ({
-                    axiom,
+            return fallbackRules
+                .map((rule, originalIndex) => ({
+                    rule,
                     originalIndex,
-                    rank: rank.has(axiom.nnIndex ?? axiom.axiomID)
-                        ? rank.get(axiom.nnIndex ?? axiom.axiomID)
+                    rank: rank.has(rule.nnIndex)
+                        ? rank.get(rule.nnIndex)
                         : Number.POSITIVE_INFINITY
                 }))
                 .sort((a, b) => {
                     if (a.rank !== b.rank) return a.rank - b.rank;
                     return a.originalIndex - b.originalIndex;
                 })
-                .map(item => item.axiom);
+                .map(item => item.rule);
         }
 
-        const merged = [];
-        const seen = new Set();
+        if (_annDispatchMode === "ann_first") {
+            const predictedSet = new Set(predicted.map(axiom => axiom.nnIndex));
+            const first = [];
+            const rest = [];
 
-        for (const axiom of predicted) {
-            const key = axiom.nnIndex ?? axiom.axiomID;
-
-            if (!seen.has(key)) {
-                seen.add(key);
-                merged.push(axiom);
+            for (const rule of fallbackRules) {
+                if (predictedSet.has(rule.nnIndex)) {
+                    first.push(rule);
+                } else {
+                    rest.push(rule);
+                }
             }
+
+            return [...first, ...rest];
         }
 
-        for (const axiom of fallbackAxioms) {
-            const key = axiom.nnIndex ?? axiom.axiomID;
-
-            if (!seen.has(key)) {
-                seen.add(key);
-                merged.push(axiom);
-            }
-        }
-
-        return merged;
+        return fallbackRules;
     }
 
     trainReplaySamples() {
@@ -546,8 +616,7 @@ class NeuralAxiomDispatcher {
 
         this._saveCachedModel();
     }
-
-} // end class
+}
 
 // MAIN //
 
@@ -565,336 +634,245 @@ const _searchStrategy = {
 }
 
 const _currentSearchStrategy = _searchStrategy.option._astar; // _astar,_greedy,_adaptive //
-const _canonicalFormFlag = false; // Add ANN dispatch configuration. fast! Only finds approximate solutions.
+const _canonicalFormFlag = false;
 
-// Rewrite candidate selection configuration.
-// "deterministic" -> original legal rewrite order.
-// "matrix_beam"  -> rank legal rewrites by tally-shaped matrix residual before enqueue.
-const _rewriteCandidateMode = "matrix_beam"; // "deterministic", "matrix_beam" //
-const _matrixBeamWidth = 16;
-const _matrixAllowWorsening = 4;
-const _matrixNorm = "l1"; // "l1", "l2" //
-const _matrixIncludeAllOccurrencesCandidate = true;
-
-// OPEN queue: A*-safe score inversion plus ANN tie-ranking.
-const _openQueueMode = "bucket_astar"; // "bucket_astar", "ann_tie_astar"
-const _priorityMaxF = 65535;
-
-// Critical performance switch.
-// "off"         -> no ANN prediction/training in the OPEN queue hot path.
-// "predict_tie" -> ANN predicts tie-order only; no online training.
-const _branchRankMode = "off";
-
-const _branchTieBuckets = _branchRankMode === "off" ? 1 : 16;
-const _branchRankHiddenSize = 8;
-const _branchRankLearningRate = 0.02;
-
-function seededRand(seed) {
-    let s = seed >>> 0;
-
-    return function() {
-        s ^= s << 13;
-        s ^= s >>> 17;
-        s ^= s << 5;
-        return (s >>> 0) / 4294967296;
-    };
-}
-
-function sigmoid(x) {
-    if (x < -40) return 0;
-    if (x > 40) return 1;
-    return 1 / (1 + Math.exp(-x));
-}
-
-// Tiny ANN used only as an A*-safe tie-ranker inside equal f buckets.
-class BranchRankANN {
-    constructor(inputSize = 8, hiddenSize = 8, learningRate = 0.02, seed = 777) {
-        this.inputSize = inputSize;
-        this.hiddenSize = hiddenSize;
-        this.learningRate = learningRate;
-        this.wIH = new Float32Array(inputSize * hiddenSize);
-        this.bH = new Float32Array(hiddenSize);
-        this.wHO = new Float32Array(hiddenSize);
-        this.h = new Float32Array(hiddenSize);
-        this.bO = 0;
-
-        const rand = seededRand(seed);
-        for (let i = 0; i < this.wIH.length; i++) this.wIH[i] = (rand() * 2 - 1) / Math.sqrt(inputSize);
-        for (let i = 0; i < this.wHO.length; i++) this.wHO[i] = (rand() * 2 - 1) / Math.sqrt(hiddenSize);
+// Binary Heap implementation for O(log n) operations.
+class BinaryHeap {
+    constructor(compareFn) {
+        this.items = [];
+        this.compare = compareFn || ((a, b) => a.priority - b.priority);
     }
-
-    predict01(x) {
-        for (let j = 0; j < this.hiddenSize; j++) {
-            let sum = this.bH[j], base = j * this.inputSize;
-            for (let i = 0; i < this.inputSize; i++) sum += (x[i] || 0) * this.wIH[base + i];
-            this.h[j] = Math.tanh(sum);
-        }
-
-        let out = this.bO;
-        for (let j = 0; j < this.hiddenSize; j++) out += this.h[j] * this.wHO[j];
-        return sigmoid(out);
+    
+    enqueue(element, priority) {
+        this.items.push({element, priority});
+        this._bubbleUp(this.items.length - 1);
     }
-
-    bucket(x, bucketCount) {
-        return Math.max(0, Math.min(bucketCount - 1, Math.floor(this.predict01(x) * bucketCount)));
-    }
-
-    train(x, target) {
-        target = Math.max(0, Math.min(1, target));
-        const y = this.predict01(x);
-        const dO = (target - y) * y * (1 - y);
-
-        for (let j = 0; j < this.hiddenSize; j++) {
-            const old = this.wHO[j];
-            this.wHO[j] += this.learningRate * dO * this.h[j];
-
-            const dH = dO * old * (1 - this.h[j] * this.h[j]);
-            const base = j * this.inputSize;
-
-            for (let i = 0; i < this.inputSize; i++) {
-                this.wIH[base + i] += this.learningRate * dH * (x[i] || 0);
-            }
-
-            this.bH[j] += this.learningRate * dH;
-        }
-
-        this.bO += this.learningRate * dO;
-    }
-}
-
-// Direct-address priority stack. Higher integer priority pops first.
-// A* compatibility: priority = (MAX_F - f) * tieBuckets + annTie.
-class AnnPriorityStack {
-    constructor(maxF = 65535, tieBuckets = 16, ann = null) {
-        this.maxF = maxF;
-        this.tieBuckets = tieBuckets;
-        this.ann = ann;
-        this.maxPriority = (maxF + 1) * tieBuckets - 1;
-
-        this.top = new Int32Array(this.maxPriority + 1).fill(-1);
-        this.count = new Int32Array(this.maxPriority + 1);
-
-        this.id = [];
-        this.element = [];
-        this.priority = [];
-        this.prev = [];
-        this.next = [];
-        this.free = [];
-        this.byId = new Map();
-
-        this.levels = [];
-        this._buildLevels(this.maxPriority + 1);
-
-        this.seq = 0;
-        this.predictions = 0;
-        this.trainingSamples = 0;
-    }
-
-    _buildLevels(n) {
-        for (let words = Math.ceil(n / 32); ; words = Math.ceil(words / 32)) {
-            this.levels.push(new Uint32Array(words));
-            if (words <= 1) break;
-        }
-    }
-
-    _set(p) {
-        let idx = p >>> 5;
-        this.levels[0][idx] |= 1 << (p & 31);
-
-        for (let l = 1; l < this.levels.length; l++) {
-            const parent = idx >>> 5;
-            this.levels[l][parent] |= 1 << (idx & 31);
-            idx = parent;
-        }
-    }
-
-    _clear(p) {
-        if (this.count[p] !== 0) return;
-
-        let idx = p >>> 5;
-        this.levels[0][idx] &= ~(1 << (p & 31));
-
-        for (let l = 1; l < this.levels.length; l++) {
-            if (this.levels[l - 1][idx] !== 0) break;
-
-            const parent = idx >>> 5;
-            this.levels[l][parent] &= ~(1 << (idx & 31));
-            idx = parent;
-        }
-    }
-
-    _highest() {
-        let idx = 0;
-
-        for (let l = this.levels.length - 1; l >= 0; l--) {
-            const word = this.levels[l][idx];
-            if (word === 0) return -1;
-            idx = (idx << 5) + 31 - Math.clz32(word);
-        }
-
-        return idx <= this.maxPriority ? idx : -1;
-    }
-
-    _makePriority(f, features = null, target = undefined) {
-        const fQ = Math.max(0, Math.min(this.maxF, Math.round(f)));
-        let tie = 0;
-
-        if (
-            this.ann &&
-            features &&
-            (_branchRankMode === "predict_tie" || _branchRankMode === "online_train")
-        ) {
-            tie = this.ann.bucket(features, this.tieBuckets);
-            this.predictions++;
-
-            // Preserve target support, but keep training out of the hot path by default.
-            if (_branchRankMode === "online_train" && target !== undefined) {
-                this.ann.train(features, target);
-                this.trainingSamples++;
-            }
-        }
-
-        return (this.maxF - fQ) * this.tieBuckets + tie;
-    }
-
-    enqueue(element, f, features = null, target = undefined) {
-        const id = element.queueId || `${element.side}:${element.canonicalStr}:${this.seq++}`;
-        const p = this._makePriority(f, features, target);
-
-        if (this.byId.has(id)) return this.update(id, element, f, features);
-
-        const n = this.free.length ? this.free.pop() : this.element.length;
-        const oldTop = this.top[p];
-
-        this.id[n] = id;
-        this.element[n] = element;
-        this.priority[n] = p;
-        this.prev[n] = -1;
-        this.next[n] = oldTop;
-
-        if (oldTop !== -1) this.prev[oldTop] = n;
-
-        this.top[p] = n;
-        this.count[p]++;
-        this.byId.set(id, n);
-        this._set(p);
-    }
-
-    update(id, element, f, features = null) {
-        this.remove(id);
-        element.queueId = id;
-        this.enqueue(element, f, features);
-    }
-
-    remove(id) {
-        const n = this.byId.get(id);
-        if (n === undefined) return null;
-
-        const p = this.priority[n];
-
-        if (this.prev[n] !== -1) this.next[this.prev[n]] = this.next[n];
-        else this.top[p] = this.next[n];
-
-        if (this.next[n] !== -1) this.prev[this.next[n]] = this.prev[n];
-
-        this.count[p]--;
-        this._clear(p);
-        this.byId.delete(id);
-
-        const out = this.element[n];
-        this.element[n] = null;
-        this.free.push(n);
-
-        return out;
-    }
-
+    
     dequeue() {
-        const p = this._highest();
-        if (p < 0) return undefined;
-        return this.remove(this.id[this.top[p]]);
+        if (this.isEmpty()) return undefined;
+        
+        const result = this.items[0];
+        const end = this.items.pop();
+        
+        if (this.items.length > 0) {
+            this.items[0] = end;
+            this._bubbleDown(0);
+        }
+        
+        return result?.element;
     }
 
+    peekPriority() {
+        return this.items[0]?.priority ?? Number.POSITIVE_INFINITY;
+    }
+    
     isEmpty() {
-        return this._highest() < 0;
+        return this.items.length === 0;
     }
-
+    
     size() {
-        return this.byId.size;
-    }
-}
-
-function normRankValue(x, scale = 16) {
-    return Math.tanh((x || 0) / scale);
-}
-
-function makeBranchRankFeatures(rewrite, stateDepth) {
-    return new Float32Array([
-        normRankValue(rewrite.matrixScore),
-        normRankValue(rewrite.matrixImprovement),
-        normRankValue(rewrite.matrixOldScore),
-        Math.min(1, rewrite.length / 64),
-        Math.min(1, stateDepth / 128),
-        rewrite.direction === 'expand' ? 1 : 0,
-        rewrite.method === 'all' ? 1 : 0,
-        rewrite.side === 'rhs' ? 1 : 0
-    ]);
-}
-
-function branchRankTarget(rewrite) {
-    const base = Math.max(1, Math.abs(rewrite.matrixOldScore || 0));
-    return Math.max(0, Math.min(1, 0.5 + (rewrite.matrixImprovement || 0) / (2 * base)));
-}
-
-// Token index for fast axiom matching
-class AxiomIndex {
-    constructor() {
-        this.tokenToAxioms = new Map();
-        this.patternAxioms = [];
+        return this.items.length;
     }
     
-    addAxiom(axiom) {
-        const hasPattern = axiom.subnets.some(subnet => 
-            subnet.some(token => token.includes('?'))
-        );
+    _bubbleUp(idx) {
+        const element = this.items[idx];
         
-        if (hasPattern) {
-            this.patternAxioms.push(axiom);
-        } else {
-            // Index by first token of each subnet
-            for (const subnet of axiom.subnets) {
-                if (subnet.length > 0) {
-                    const token = subnet[0];
-                    if (!this.tokenToAxioms.has(token)) {
-                        this.tokenToAxioms.set(token, []);
-                    }
-                    this.tokenToAxioms.get(token).push(axiom);
+        while (idx > 0) {
+            const parentIdx = Math.floor((idx - 1) / 2);
+            const parent = this.items[parentIdx];
+            
+            if (this.compare(element, parent) >= 0) break;
+            
+            this.items[idx] = parent;
+            idx = parentIdx;
+        }
+        
+        this.items[idx] = element;
+    }
+    
+    _bubbleDown(idx) {
+        const element = this.items[idx];
+        const length = this.items.length;
+        
+        while (true) {
+            const leftChildIdx = 2 * idx + 1;
+            const rightChildIdx = 2 * idx + 2;
+            let swap = -1;
+            
+            if (leftChildIdx < length) {
+                const leftChild = this.items[leftChildIdx];
+                if (this.compare(leftChild, element) < 0) {
+                    swap = leftChildIdx;
                 }
+            }
+            
+            if (rightChildIdx < length) {
+                const rightChild = this.items[rightChildIdx];
+                const leftForCompare = swap === -1 ? element : this.items[leftChildIdx];
+
+                if (this.compare(rightChild, leftForCompare) < 0) {
+                    swap = rightChildIdx;
+                }
+            }
+            
+            if (swap === -1) break;
+            
+            this.items[idx] = this.items[swap];
+            idx = swap;
+        }
+        
+        this.items[idx] = element;
+    }
+}
+
+function canonicalize(expr) {
+    // Simple canonicalization: sort sequences of additions.
+    const result = [...expr];
+    const plusToken = _tokenStore?.tokenToId.get('+');
+
+    if (plusToken === undefined) return result;
+    
+    for (let i = 0; i < result.length; i++) {
+        if (result[i] === plusToken && i > 0 && i < result.length - 1) {
+            const terms = [];
+            let start = i - 1;
+            
+            while (start > 0 && result[start - 1] === plusToken) {
+                start -= 2;
+            }
+            
+            for (let j = start; j < result.length; j += 2) {
+                if (j >= result.length || (j > start && result[j - 1] !== plusToken)) break;
+                terms.push(result[j]);
+            }
+            
+            terms.sort((a, b) => a - b);
+            
+            let k = 0;
+            for (let j = start; j < result.length && k < terms.length; j += 2) {
+                if (j >= result.length || (j > start && result[j - 1] !== plusToken)) break;
+                result[j] = terms[k++];
             }
         }
     }
     
-    getRelevantAxioms(expr) {
-        const relevantAxioms = new Set();
-        
-        // Get axioms matching any token in the expression
-        for (const token of expr) {
-            if (this.tokenToAxioms.has(token)) {
-                for (const axiom of this.tokenToAxioms.get(token)) {
-                    relevantAxioms.add(axiom);
-                }
+    return result;
+}
+
+function exprKey(expr) {
+    return expr.join(' ');
+}
+
+function findPatternAnchor(tokens) {
+    for (let i = 0; i < tokens.length; i++) {
+        if (!isPatternToken(tokens[i])) {
+            return {
+                token: tokens[i],
+                offset: i
+            };
+        }
+    }
+
+    return null;
+}
+
+function compileRewriteRules(axioms) {
+    const rules = [];
+
+    const addRule = (axiom, axiomIndex, from, to, orientation) => {
+        const anchor = findPatternAnchor(from);
+
+        rules.push({
+            ruleID: `${axiom.axiomID}:${orientation}`,
+            axiomID: axiom.axiomID,
+            guidZ: axiom.guidZ,
+            nnIndex: axiomIndex,
+            from,
+            to,
+            fromLen: from.length,
+            toLen: to.length,
+            firstToken: from[0],
+            hasPattern: from.some(isPatternToken),
+            anchorToken: anchor?.token ?? null,
+            anchorOffset: anchor?.offset ?? -1,
+            direction: to.length > from.length ? 'expand' : 'reduce'
+        });
+    };
+
+    for (let i = 0; i < axioms.length; i++) {
+        const axiom = axioms[i];
+        axiom.nnIndex = i;
+
+        const [a, b] = axiom.subnets;
+
+        if (Array.isArray(a) && Array.isArray(b)) {
+            addRule(axiom, i, a, b, 0);
+            addRule(axiom, i, b, a, 1);
+        }
+    }
+
+    return rules;
+}
+
+class RewriteRuleIndex {
+    constructor(rules) {
+        this.literalFirstTokenToRules = new Map();
+        this.patternAnchorToRules = new Map();
+        this.floatingPatternRules = [];
+
+        for (const rule of rules) {
+            this.addRule(rule);
+        }
+    }
+
+    _addToMap(map, key, rule) {
+        if (!map.has(key)) {
+            map.set(key, []);
+        }
+
+        map.get(key).push(rule);
+    }
+
+    addRule(rule) {
+        if (rule.hasPattern) {
+            if (rule.anchorToken !== null) {
+                this._addToMap(this.patternAnchorToRules, rule.anchorToken, rule);
+            } else {
+                this.floatingPatternRules.push(rule);
             }
+
+            return;
         }
-        
-        // Always include pattern axioms
-        for (const axiom of this.patternAxioms) {
-            relevantAxioms.add(axiom);
+
+        this._addToMap(this.literalFirstTokenToRules, rule.firstToken, rule);
+    }
+
+    getRelevantRules(positionIndex) {
+        const relevant = [];
+        const seen = new Set();
+
+        const addRules = (rules) => {
+            if (!rules) return;
+
+            for (const rule of rules) {
+                if (seen.has(rule.ruleID)) continue;
+
+                seen.add(rule.ruleID);
+                relevant.push(rule);
+            }
+        };
+
+        for (const token of positionIndex.keys()) {
+            addRules(this.literalFirstTokenToRules.get(token));
+            addRules(this.patternAnchorToRules.get(token));
         }
-        
-        return Array.from(relevantAxioms);
+
+        addRules(this.floatingPatternRules);
+
+        return relevant;
     }
 }
 
-// Heuristic cache
 class HeuristicCache {
     constructor() {
         this.cache = new Map();
@@ -913,192 +891,22 @@ class HeuristicCache {
     }
 }
 
-// Pattern matching with variables
-function matchPattern(pattern, expr, bindings = {}) {
-    if (pattern.length > expr.length) return null;
-    
-    const newBindings = {...bindings};
-    
-    for (let i = 0; i <= expr.length - pattern.length; i++) {
-        let match = true;
-        const tempBindings = {...newBindings};
-        
-        for (let j = 0; j < pattern.length; j++) {
-            const patternToken = pattern[j];
-            const exprToken = expr[i + j];
-            
-            if (patternToken.startsWith('?')) {
-                // Pattern variable
-                if (tempBindings[patternToken]) {
-                    if (tempBindings[patternToken] !== exprToken) {
-                        match = false;
-                        break;
-                    }
-                } else {
-                    tempBindings[patternToken] = exprToken;
-                }
-            } else if (patternToken !== exprToken) {
-                match = false;
-                break;
-            }
+function buildPositionIndex(expr) {
+    const index = new Map();
+
+    for (let i = 0; i < expr.length; i++) {
+        const token = expr[i];
+        let positions = index.get(token);
+
+        if (!positions) {
+            positions = [];
+            index.set(token, positions);
         }
-        
-        if (match) {
-            return {
-                position: i,
-                bindings: tempBindings
-            };
-        }
-    }
-    
-    return null;
-}
 
-// Apply pattern substitution
-function applySubstitution(pattern, bindings) {
-    return pattern.map(token => {
-        if (token.startsWith('?') && bindings[token]) {
-            return bindings[token];
-        }
-        return token;
-    });
-}
-
-// Canonicalization for commutative operations
-function canonicalize(expr) {
-    // Simple canonicalization: sort sequences of additions
-    const result = [...expr];
-    
-    // Find + operators and sort their operands
-    for (let i = 0; i < result.length; i++) {
-        if (result[i] === '+' && i > 0 && i < result.length - 1) {
-            // Collect all terms in this addition chain
-            const terms = [];
-            let start = i - 1;
-            
-            // Go backwards to find start
-            while (start > 0 && result[start - 1] === '+') {
-                start -= 2;
-            }
-            
-            // Collect all terms
-            for (let j = start; j < result.length; j += 2) {
-                if (j >= result.length || (j > start && result[j - 1] !== '+')) break;
-                terms.push(result[j]);
-            }
-            
-            // Sort terms
-            terms.sort();
-            
-            // Replace in result
-            let k = 0;
-            for (let j = start; j < result.length && k < terms.length; j += 2) {
-                if (j >= result.length || (j > start && result[j - 1] !== '+')) break;
-                result[j] = terms[k++];
-            }
-        }
-    }
-    
-    return result;
-}
-
-// Sparse tally vector helpers. A tally is a plain object: { token: count }.
-// A delta has the same structure, but values may be negative.
-function makeTally(tokens) {
-    const tally = Object.create(null);
-
-    if (!Array.isArray(tokens)) return tally;
-
-    for (const token of tokens) {
-        const key = normalizeAxiomToken(token);
-        tally[key] = (tally[key] || 0) + 1;
+        positions.push(i);
     }
 
-    return tally;
-}
-
-function cloneTally(tally) {
-    const out = Object.create(null);
-
-    for (const key in tally) {
-        out[key] = tally[key];
-    }
-
-    return out;
-}
-
-function addTallyValue(out, key, value) {
-    const next = (out[key] || 0) + value;
-
-    if (next === 0) {
-        delete out[key];
-    } else {
-        out[key] = next;
-    }
-}
-
-function subtractTallies(left, right) {
-    const out = Object.create(null);
-
-    for (const key in left) {
-        addTallyValue(out, key, left[key]);
-    }
-
-    for (const key in right) {
-        addTallyValue(out, key, -right[key]);
-    }
-
-    return out;
-}
-
-function deltaTally(from, to) {
-    // Directed rewrite delta: tally(to) - tally(from).
-    // The result deliberately preserves the same sparse object shape as makeTally().
-    return subtractTallies(makeTally(to), makeTally(from));
-}
-
-function applyTallyDelta(tally, delta) {
-    const out = cloneTally(tally);
-
-    for (const key in delta) {
-        addTallyValue(out, key, delta[key]);
-    }
-
-    return out;
-}
-
-function tallyNorm(tally, norm = _matrixNorm) {
-    let score = 0;
-
-    for (const key in tally) {
-        const value = tally[key];
-        score += norm === "l2" ? value * value : Math.abs(value);
-    }
-
-    return score;
-}
-
-function scoreMatrixCandidate(side, currentTally, targetTally, delta) {
-    const oldResidual = side === "lhs"
-        ? subtractTallies(currentTally, targetTally)
-        : subtractTallies(targetTally, currentTally);
-
-    const nextCurrentTally = applyTallyDelta(currentTally, delta);
-
-    const newResidual = side === "lhs"
-        ? subtractTallies(nextCurrentTally, targetTally)
-        : subtractTallies(targetTally, nextCurrentTally);
-
-    const oldScore = tallyNorm(oldResidual);
-    const score = tallyNorm(newResidual);
-
-    return {
-        score,
-        oldScore,
-        improvement: oldScore - score,
-        residual: newResidual,
-        delta
-    };
+    return index;
 }
 
 function arraysMatchAt(expr, pattern, position) {
@@ -1112,6 +920,44 @@ function arraysMatchAt(expr, pattern, position) {
     return true;
 }
 
+function matchPatternAt(pattern, expr, position, bindings = null) {
+    if (position < 0 || position + pattern.length > expr.length) return null;
+
+    const out = bindings ? new Map(bindings) : new Map();
+
+    for (let j = 0; j < pattern.length; j++) {
+        const patternToken = pattern[j];
+        const exprToken = expr[position + j];
+        
+        if (isPatternToken(patternToken)) {
+            if (out.has(patternToken)) {
+                if (out.get(patternToken) !== exprToken) {
+                    return null;
+                }
+            } else {
+                out.set(patternToken, exprToken);
+            }
+        } else if (patternToken !== exprToken) {
+            return null;
+        }
+    }
+
+    return {
+        position,
+        bindings: out
+    };
+}
+
+function applySubstitution(pattern, bindings) {
+    return pattern.map(token => {
+        if (isPatternToken(token) && bindings.has(token)) {
+            return bindings.get(token);
+        }
+
+        return token;
+    });
+}
+
 function replaceAt(expr, from, to, position) {
     return [
         ...expr.slice(0, position),
@@ -1120,13 +966,17 @@ function replaceAt(expr, from, to, position) {
     ];
 }
 
-function replaceAllOccurrences(expr, from, to) {
-    let result = [...expr];
+function replaceAllAtPositions(expr, from, to, positions) {
+    if (!positions || positions.length === 0) return false;
+
+    const result = [...expr];
     let changed = false;
 
-    for (let i = result.length - from.length; i >= 0; i--) {
-        if (arraysMatchAt(result, from, i)) {
-            result.splice(i, from.length, ...to);
+    for (let i = positions.length - 1; i >= 0; i--) {
+        const position = positions[i];
+
+        if (arraysMatchAt(result, from, position)) {
+            result.splice(position, from.length, ...to);
             changed = true;
         }
     }
@@ -1134,84 +984,98 @@ function replaceAllOccurrences(expr, from, to) {
     return changed ? result : false;
 }
 
-function findLiteralMatches(expr, from) {
-    const positions = [];
+function* matchRuleOccurrences(expr, rule, positionIndex) {
+    // Preserve the original branching semantics:
+    // - literal rules yield first occurrence replacement;
+    // - literal rules also yield all-occurrences replacement when useful;
+    // - pattern rules yield first legal match only.
+    // The speedup comes from using token-position anchors instead of scanning the
+    // whole expression for every directed rule.
+    if (!rule.hasPattern) {
+        const candidatePositions = positionIndex.get(rule.firstToken) || [];
+        const matches = [];
 
-    if (!Array.isArray(from) || from.length === 0 || from.length > expr.length) {
-        return positions;
-    }
-
-    for (let i = 0; i <= expr.length - from.length; i++) {
-        if (arraysMatchAt(expr, from, i)) {
-            positions.push(i);
-        }
-    }
-
-    return positions;
-}
-
-function findPatternMatches(pattern, expr, bindings = {}) {
-    const matches = [];
-
-    if (pattern.length > expr.length) return matches;
-
-    for (let i = 0; i <= expr.length - pattern.length; i++) {
-        let ok = true;
-        const tempBindings = {...bindings};
-
-        for (let j = 0; j < pattern.length; j++) {
-            const patternToken = pattern[j];
-            const exprToken = expr[i + j];
-
-            if (patternToken.startsWith('?')) {
-                if (tempBindings[patternToken]) {
-                    if (tempBindings[patternToken] !== exprToken) {
-                        ok = false;
-                        break;
-                    }
-                } else {
-                    tempBindings[patternToken] = exprToken;
-                }
-            } else if (patternToken !== exprToken) {
-                ok = false;
-                break;
+        for (const position of candidatePositions) {
+            if (arraysMatchAt(expr, rule.from, position)) {
+                matches.push(position);
             }
         }
 
-        if (ok) {
-            matches.push({
-                position: i,
-                bindings: tempBindings
-            });
+        if (matches.length > 0) {
+            yield {
+                position: matches[0],
+                to: rule.to,
+                method: 'first'
+            };
         }
+
+        if (matches.length > 1) {
+            const resultExpr = replaceAllAtPositions(expr, rule.from, rule.to, matches);
+
+            if (resultExpr) {
+                yield {
+                    position: -1,
+                    to: rule.to,
+                    method: 'all',
+                    resultExpr
+                };
+            }
+        }
+
+        return;
     }
 
-    return matches;
+    if (rule.anchorToken !== null) {
+        const anchorPositions = positionIndex.get(rule.anchorToken) || [];
+
+        for (const anchorPosition of anchorPositions) {
+            const start = anchorPosition - rule.anchorOffset;
+            const match = matchPatternAt(rule.from, expr, start);
+
+            if (!match) continue;
+
+            yield {
+                position: match.position,
+                to: applySubstitution(rule.to, match.bindings),
+                method: 'pattern'
+            };
+
+            return;
+        }
+
+        return;
+    }
+
+    for (let position = 0; position <= expr.length - rule.fromLen; position++) {
+        const match = matchPatternAt(rule.from, expr, position);
+
+        if (!match) continue;
+
+        yield {
+            position: match.position,
+            to: applySubstitution(rule.to, match.bindings),
+            method: 'pattern'
+        };
+
+        return;
+    }
 }
 
 let heuristicCache;
-let axiomIndex;
-let annDispatcher; // forward declaration //
+let rewriteRuleIndex;
+let annDispatcher;
 let proofHistory = [];
 
 function solveProblem() {
     const { axioms, proofStatement } = parseInput(_input.value);
     const startTime = performance.now();
 
-    // Reset global state.
     heuristicCache = new HeuristicCache();
-    axiomIndex = new AxiomIndex();
-    annDispatcher = null;
     proofHistory = [];
 
-    // Build deterministic token-index fallback.
-    for (let i = 0; i < axioms.length; i++) {
-        axioms[i].nnIndex = i;
-        axiomIndex.addAxiom(axioms[i]);
-    }
+    const rewriteRules = compileRewriteRules(axioms);
+    rewriteRuleIndex = new RewriteRuleIndex(rewriteRules);
 
-    // Pre-parse all axiom/proof tokens to compute ANN inputSize,
-    // then train/load the compact address predictor.
     annDispatcher = new NeuralAxiomDispatcher({
         axioms,
         proofStatement,
@@ -1231,12 +1095,14 @@ function solveProblem() {
         States explored: ${result.stats.statesExplored}<br>
         Unique states: ${result.stats.uniqueStates}<br>
         Queue operations: ${result.stats.queueOps}<br>
-        OPEN queue: ${result.stats.openQueueMode}<br>
-        Branch rank mode: ${result.stats.branchRankMode}<br>
-        Branch ANN predictions: ${result.stats.branchAnnPredictions}<br>
-        Branch ANN training samples: ${result.stats.branchAnnTrainingSamples}<br>
         Search depth: ${result.stats.maxDepth}<br>
         Strategy: ${result.stats.strategy}<br>
+        Token count: ${result.stats.tokenCount}<br>
+        Directed rewrite rules: ${result.stats.rewriteRuleCount}<br>
+        Position-index builds: ${result.stats.positionIndexBuilds}<br>
+        Rule match attempts: ${result.stats.ruleMatchAttempts}<br>
+        Rewrite candidates yielded: ${result.stats.rewriteCandidatesYielded}<br>
+        Debug proof history: ${_debugProofHistoryFlag ? 'on' : 'off'}<br>
         ANN mode: ${result.stats.annMode}<br>
         ANN inputSize: ${result.stats.annInputSize}<br>
         ANN address bits: ${result.stats.annAddressBits}<br>
@@ -1251,12 +1117,8 @@ function solveProblem() {
         ANN valid bitfield predictions: ${result.stats.annValidPredictions}<br>
         ANN cache hits: ${result.stats.annCacheHits}<br>
         ANN fallback scans: ${result.stats.annFallbackScans}<br>
-        Rewrite candidate mode: ${result.stats.rewriteCandidateMode}<br>
-        Matrix candidate count: ${result.stats.matrixCandidateCount}<br>
-        Matrix yielded count: ${result.stats.matrixYieldCount}<br>
-        Matrix pruned count: ${result.stats.matrixPrunedCount}<br>
-        Matrix beam width: ${result.stats.matrixBeamWidth}<br>
-        Proof steps found: ${proofHistory.length}
+        Final proof steps: ${result.stats.proofSteps}<br>
+        Debug history records: ${proofHistory.length}
     `;
 
     if (
@@ -1267,7 +1129,7 @@ function solveProblem() {
         annDispatcher.trainReplaySamples();
     }
 
-    if (!result.proof.includes("Proof Found!") && proofHistory.length > 0) {
+    if (!result.proof.includes("Proof Found!") && _debugProofHistoryFlag && proofHistory.length > 0) {
         _output.value += "\n\n=== Partial Proof History ===\n";
 
         for (const step of proofHistory) {
@@ -1277,58 +1139,72 @@ function solveProblem() {
 }
 
 function parseInput(input) {
-    let lines = input
+    _tokenStore = new TokenStore();
+
+    const lines = input
         .split('\n')
-        .filter(line => line.trim() && !line.startsWith('//'));
-    let axiomsSet = new Set();
+        .filter(line => line.trim() && !line.trim().startsWith('//'));
+
+    const axiomMap = new Map();
 
     lines.slice().forEach((line, k) => {
-        // Handle pattern variables in axioms
         const parts = line
             .split(/[~<]?=+[>]?/g)
-            .map(s => s.trim());
+            .map(s => s.trim())
+            .filter(Boolean);
+
         parts.forEach((part, i) => {
             parts.slice(i + 1).forEach(otherPart => {
-                axiomsSet.add({
-                    subnets: `${part} = ${otherPart}`,
-                    axiomID: `axiom_${k + 1}.0`,
-                    guidZ: k
-                });
+                const left = _tokenStore.encodeTokens(part);
+                const right = _tokenStore.encodeTokens(otherPart);
+                const key = `${left.join(' ')}=${right.join(' ')}`;
+
+                if (!axiomMap.has(key)) {
+                    axiomMap.set(key, {
+                        subnets: [left, right],
+                        axiomID: `axiom_${k + 1}.0`,
+                        guidZ: k
+                    });
+                }
             });
         });
     });
 
-    const sortedAxioms = Array.from(axiomsSet).map(axiom => {
+    const sortedAxioms = Array.from(axiomMap.values()).map(axiom => {
         axiom.subnets = axiom.subnets
-            .split(' = ')
-            .sort((a, b) => b.length - a.length) // (lhs/rhs) //
-            .map(pair => pair.match(/\S+/g));
+            .sort((a, b) => b.length - a.length);
         return axiom;
     });
 
     const proofStatement = sortedAxioms[sortedAxioms.length - 1];
+
     return {
         axioms: sortedAxioms.slice(0, -1),
-        proofStatement: proofStatement
+        proofStatement
     };
 }
 
 function generateProofOptimized(axioms, proofStatement) {
     const [lhs, rhs] = proofStatement.subnets;
-    const lhsStr = lhs.join(' ');
-    const rhsStr = rhs.join(' ');
+    const lhsStr = exprToString(lhs);
+    const rhsStr = exprToString(rhs);
 
-    // Main search loop
     let iterations = 0;
     const maxIterations = 10000;
     
-    // Statistics tracking
     const stats = {
         statesExplored: 0,
         uniqueStates: 0,
         queueOps: 0,
         maxDepth: 0,
         strategy: _currentSearchStrategy.description,
+
+        tokenCount: _tokenStore?.idToToken.length ?? 0,
+        rewriteRuleCount: axioms.length * 2,
+        positionIndexBuilds: 0,
+        ruleMatchAttempts: 0,
+        rewriteCandidatesYielded: 0,
+        proofSteps: 0,
 
         annMode: annDispatcher?.stats.annMode ?? "off",
         annInputSize: annDispatcher?.stats.annInputSize ?? 0,
@@ -1348,13 +1224,7 @@ function generateProofOptimized(axioms, proofStatement) {
         annFallbackScans: annDispatcher?.stats.annFallbackScans ?? 0,
 
         meetChecks: 0,
-        fastForwardHits: 0,
-
-        rewriteCandidateMode: _rewriteCandidateMode,
-        matrixCandidateCount: 0,
-        matrixYieldCount: 0,
-        matrixPrunedCount: 0,
-        matrixBeamWidth: _matrixBeamWidth
+        fastForwardHits: 0
     };
 
     function syncAnnStats() {
@@ -1385,106 +1255,127 @@ function generateProofOptimized(axioms, proofStatement) {
         return stats;
     }
 
-    // If already equal, return immediately
     if (lhsStr === rhsStr) {
+        stats.proofSteps = 1;
+
         return {
             proof: "Proof Found!\n\n" + lhsStr + " = " + rhsStr + ", trivial\n\nQ.E.D.",
             stats
         };
     }
 
-    // Heuristic function with caching
     function heuristic(expr1, expr2) {
-        // Check cache first
-        let cached = heuristicCache.get(expr1, expr2);
+        const cached = heuristicCache.get(expr1, expr2);
         if (cached !== undefined) return cached;
         
-        const arr1 = [...expr1];
-        const arr2 = [...expr2];
-        
-        // Combine multiple heuristics
+        const arr1 = expr1;
+        const arr2 = expr2;
         let h = 0;
         
-        // Length difference
         h += Math.abs(arr1.length - arr2.length) * 2;
         
-        // Token difference
         const tokens1 = new Set(arr1);
         const tokens2 = new Set(arr2);
-        const common = new Set([...tokens1].filter(x => tokens2.has(x)));
-        h += (tokens1.size + tokens2.size - 2 * common.size);
+        let commonCount = 0;
+
+        for (const token of tokens1) {
+            if (tokens2.has(token)) commonCount++;
+        }
+
+        h += (tokens1.size + tokens2.size - 2 * commonCount);
         
-        // Position-based difference
         const minLen = Math.min(arr1.length, arr2.length);
         for (let i = 0; i < minLen; i++) {
             if (arr1[i] !== arr2[i]) h += 1;
         }
         
-        // Cache the result
         heuristicCache.set(expr1, expr2, h);
         return h;
     }
 
-    // Unified search state
     class SearchState {
-        constructor(expr, path, side, depth = 0, 
-                searchStrategy = _currentSearchStrategy.config) {
+        constructor(expr, parent, rule, side, depth = 0, searchStrategy = _currentSearchStrategy.config) {
             this.expr = expr;
-            this.canonicalExpr = _canonicalFormFlag 
-                ? canonicalize(expr) /* fast! Only finds approximate solutions. */ 
-                : expr ;
-            this.exprStr = expr.join(' ');
-            this.canonicalStr = this.canonicalExpr.join(' ');
-            this.path = path;
+            this.parent = parent;
+            this.rule = rule || 'start';
             this.side = side;
             this.depth = depth;
             this.searchStrategy = searchStrategy;
+
+            this.canonicalExpr = _canonicalFormFlag ? canonicalize(expr) : expr;
+            this.canonicalStr = exprKey(this.canonicalExpr);
+            this.exprStr = exprToString(expr);
         }
         
         getPriority(targetExpr) {
-            // BFS (Greedy) - only use heuristic, not depth, else
-            // A* f(n) = g(n) + h(n)
-            const g = this.depth; // Cost so far
-            const h = heuristic(this.canonicalExpr, targetExpr); // Heuristic estimate
+            const g = this.depth;
+            const h = heuristic(this.canonicalExpr, targetExpr);
             return ((this.searchStrategy == 'a*') || ((this.searchStrategy == 'adaptive') && (iterations > (maxIterations * .1))) ? g : 0) + h;
         }
     }
 
-    // Bidirectional BFS search
-    const branchRankANN = _branchRankMode === "predict_tie"
-        ? new BranchRankANN(
-            8,
-            _branchRankHiddenSize,
-            _branchRankLearningRate,
-            _annSeed ^ 0x9e3779b9
-        )
-        : null;
+    function unwindPath(state) {
+        const path = [];
 
-    const lhsQueue = new AnnPriorityStack(_priorityMaxF, _branchTieBuckets, branchRankANN);
-    const rhsQueue = new AnnPriorityStack(_priorityMaxF, _branchTieBuckets, branchRankANN);
+        while (state) {
+            path.push({
+                expr: state.expr,
+                rule: state.rule || 'start'
+            });
 
-    function syncQueueStats() {
-        stats.openQueueMode = _openQueueMode;
-        stats.branchRankMode = _branchRankMode;
-        stats.branchAnnPredictions = lhsQueue.predictions + rhsQueue.predictions;
-        stats.branchAnnTrainingSamples = lhsQueue.trainingSamples + rhsQueue.trainingSamples;
-        return stats;
+            state = state.parent;
+        }
+
+        return path.reverse();
     }
 
+    function constructProof(lhsState_, rhsState_) {
+        let proof = "Proof Found!\n\n";
+
+        const lhsState = lhsState_.side == "lhs" ? lhsState_ : rhsState_;
+        const rhsState = lhsState_.side == "lhs" ? rhsState_ : lhsState_;
+        const lhsPath = unwindPath(lhsState);
+        const rhsPath = unwindPath(rhsState);
+        
+        const rhsStart = exprToString(rhsPath[0].expr);
+
+        for (let i = 0; i < lhsPath.length; i++) {
+            const step = lhsPath[i];
+            proof += `${exprToString(step.expr)} = ${rhsStart}`;
+
+            if (step.rule !== 'start') {
+                proof += `, via ${step.rule} (lhs)`;
+            }
+
+            proof += '\n';
+        }
+        
+        const lhsEnd = exprToString(lhsPath[lhsPath.length - 1].expr);
+
+        for (let i = 1; i < rhsPath.length; i++) {
+            const step = rhsPath[i];
+            proof += `${lhsEnd} = ${exprToString(step.expr)}, via ${step.rule} (rhs)\n`;
+        }
+        
+        proof += "\nQ.E.D.";
+        stats.proofSteps = Math.max(0, lhsPath.length + rhsPath.length - 1);
+        return proof;
+    }
+
+    const lhsQueue = new BinaryHeap();
+    const rhsQueue = new BinaryHeap();
     const lhsVisited = new Map();
     const rhsVisited = new Map();
     
-    // Initialize with starting states
-    const lhsStart = new SearchState(lhs, [{expr: lhs, rule: 'start'}], 'lhs');
-    const rhsStart = new SearchState(rhs, [{expr: rhs, rule: 'start'}], 'rhs');
+    const lhsStart = new SearchState(lhs, null, 'start', 'lhs');
+    const rhsStart = new SearchState(rhs, null, 'start', 'rhs');
     
     lhsQueue.enqueue(lhsStart, lhsStart.getPriority(rhs));
     rhsQueue.enqueue(rhsStart, rhsStart.getPriority(lhs));
     lhsVisited.set(lhsStart.canonicalStr, lhsStart);
     rhsVisited.set(rhsStart.canonicalStr, rhsStart);
 
-    // Add the bidirectional meet helper
-    function meetState(candidateState, ownVisited, oppositeVisited) {
+    function meetState(candidateState, oppositeVisited) {
         if (!_bidirectionalFastForwardFlag) return null;
 
         stats.meetChecks++;
@@ -1499,221 +1390,49 @@ function generateProofOptimized(axioms, proofStatement) {
         return null;
     }
 
-    function makeRewriteCandidate(expr, side, axiom, from, to, resultExpr, position, method, targetExpr) {
-        const delta = deltaTally(from, to);
-        const currentTally = makeTally(expr);
-        const targetTally = makeTally(targetExpr);
-        const matrix = scoreMatrixCandidate(side, currentTally, targetTally, delta);
+    function* generateRewrites(expr, side) {
+        const positionIndex = buildPositionIndex(expr);
+        stats.positionIndexBuilds++;
 
-        return {
-            expr: resultExpr,
-            axiom: axiom.axiomID,
-            axiomIndex: axiom.nnIndex,
-            direction: to.length > from.length ? `expand` : `reduce`,
-            side,
-            from,
-            to,
-            position,
-            method,
-            delta: matrix.delta,
-            matrixScore: matrix.score,
-            matrixOldScore: matrix.oldScore,
-            matrixImprovement: matrix.improvement,
-            matrixResidual: matrix.residual,
-            length: resultExpr.length
-        };
-    }
+        let relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
+        stats.annFallbackScans++;
 
-    function collectRewriteCandidates(expr, side, targetExpr, relevantAxioms) {
-        const candidates = [];
-        const seenResults = new Set();
-
-        const pushCandidate = (candidate) => {
-            const key = `${candidate.axiom}|${candidate.direction}|${candidate.method}|${candidate.position}|${candidate.expr.join(' ')}`;
-
-            if (seenResults.has(key)) return;
-
-            seenResults.add(key);
-            candidates.push(candidate);
-        };
-
-        for (const axiom of relevantAxioms) {
-            for (const [from, to] of [
-                [axiom.subnets[0], axiom.subnets[1]],
-                [axiom.subnets[1], axiom.subnets[0]]
-            ]) {
-                const hasPattern = from.some(token => token.includes('?'));
-
-                if (!hasPattern) {
-                    const positions = findLiteralMatches(expr, from);
-
-                    for (const position of positions) {
-                        pushCandidate(
-                            makeRewriteCandidate(
-                                expr,
-                                side,
-                                axiom,
-                                from,
-                                to,
-                                replaceAt(expr, from, to, position),
-                                position,
-                                'single',
-                                targetExpr
-                            )
-                        );
-                    }
-
-                    if (_matrixIncludeAllOccurrencesCandidate && positions.length > 1) {
-                        const allResult = replaceAllOccurrences(expr, from, to);
-
-                        if (allResult) {
-                            // For simultaneous all-occurrence replacement, the delta is effectively multiplied.
-                            // Keep the same tally-shaped object representation while scaling each signed count.
-                            const candidate = makeRewriteCandidate(
-                                expr,
-                                side,
-                                axiom,
-                                from,
-                                to,
-                                allResult,
-                                -1,
-                                'all',
-                                targetExpr
-                            );
-
-                            const scaledDelta = Object.create(null);
-
-                            for (const key in candidate.delta) {
-                                scaledDelta[key] = candidate.delta[key] * positions.length;
-                            }
-
-                            const matrix = scoreMatrixCandidate(
-                                side,
-                                makeTally(expr),
-                                makeTally(targetExpr),
-                                scaledDelta
-                            );
-
-                            candidate.delta = matrix.delta;
-                            candidate.matrixScore = matrix.score;
-                            candidate.matrixOldScore = matrix.oldScore;
-                            candidate.matrixImprovement = matrix.improvement;
-                            candidate.matrixResidual = matrix.residual;
-
-                            pushCandidate(candidate);
-                        }
-                    }
-                } else {
-                    const matches = findPatternMatches(from, expr);
-
-                    for (const match of matches) {
-                        const substitutedTo = applySubstitution(to, match.bindings);
-                        const resultExpr = [
-                            ...expr.slice(0, match.position),
-                            ...substitutedTo,
-                            ...expr.slice(match.position + from.length)
-                        ];
-
-                        pushCandidate(
-                            makeRewriteCandidate(
-                                expr,
-                                side,
-                                axiom,
-                                from,
-                                substitutedTo,
-                                resultExpr,
-                                match.position,
-                                'pattern',
-                                targetExpr
-                            )
-                        );
-                    }
-                }
-            }
+        if (annDispatcher) {
+            annDispatcher.stats.annFallbackScans++;
+            relevantRules = annDispatcher.rankRules(expr, relevantRules);
         }
-
-        return candidates;
-    }
-
-    function rankMatrixCandidates(candidates) {
-        if (_rewriteCandidateMode !== "matrix_beam") {
-            return candidates;
-        }
-
-        stats.matrixCandidateCount += candidates.length;
-
-        if (candidates.length === 0) {
-            return candidates;
-        }
-
-        const oldScore = candidates[0].matrixOldScore;
-        const allowedScore = oldScore + _matrixAllowWorsening;
-
-        const sorted = candidates
-            .filter(candidate => candidate.matrixScore <= allowedScore)
-            .sort((a, b) => {
-                if (a.matrixScore !== b.matrixScore) return a.matrixScore - b.matrixScore;
-                if (a.matrixImprovement !== b.matrixImprovement) return b.matrixImprovement - a.matrixImprovement;
-                if (a.length !== b.length) return a.length - b.length;
-                return String(a.axiom).localeCompare(String(b.axiom));
-            });
-
-        const beam = sorted.slice(0, _matrixBeamWidth);
-
-        stats.matrixPrunedCount += Math.max(0, candidates.length - beam.length);
-        stats.matrixYieldCount += beam.length;
-
-        return beam;
-    }
-
-    // Generate all possible rewrites for an expression.
-    // In matrix_beam mode, legal rewrites are ranked using tally-shaped deltas.
-    function* generateRewrites(expr, side, targetExpr) {
-        let fallbackAxioms = [];
-
-        if (!annDispatcher || _annDispatchMode !== "ann_only") {
-            fallbackAxioms = axiomIndex.getRelevantAxioms(expr);
-            stats.annFallbackScans++;
-
-            if (annDispatcher) {
-                annDispatcher.stats.annFallbackScans++;
-            }
-        }
-
-        const relevantAxioms = annDispatcher
-            ? annDispatcher.mergePredictedWithFallback(expr, fallbackAxioms)
-            : fallbackAxioms;
 
         syncAnnStats();
 
-        stats.annPredictions = annDispatcher?.stats.annPredictions ?? 0;
-        stats.annValidPredictions = annDispatcher?.stats.annValidPredictions ?? 0;
-        stats.annCacheHits = annDispatcher?.stats.annCacheHits ?? 0;
-        stats.annFallbackScans = Math.max(
-            stats.annFallbackScans,
-            annDispatcher?.stats.annFallbackScans ?? 0
-        );
+        for (const rule of relevantRules) {
+            stats.ruleMatchAttempts++;
 
-        const candidates = collectRewriteCandidates(expr, side, targetExpr, relevantAxioms);
-        const rankedCandidates = rankMatrixCandidates(candidates);
+            for (const occurrence of matchRuleOccurrences(expr, rule, positionIndex)) {
+                const resultExpr = occurrence.resultExpr || replaceAt(expr, rule.from, occurrence.to, occurrence.position);
+                stats.rewriteCandidatesYielded++;
 
-        for (const candidate of rankedCandidates) {
-            if (annDispatcher && Number.isInteger(candidate.axiomIndex)) {
-                annDispatcher.addRuntimeSample(
-                    expr,
-                    candidate.axiomIndex,
-                    candidate.direction === 'expand' ? 0 : 1
-                );
+                if (annDispatcher && Number.isInteger(rule.nnIndex)) {
+                    annDispatcher.addRuntimeSample(
+                        expr,
+                        rule.nnIndex,
+                        rule.direction === 'expand' ? 0 : 1
+                    );
+                }
+
+                yield {
+                    expr: resultExpr,
+                    axiom: rule.axiomID,
+                    direction: rule.direction,
+                    method: occurrence.method,
+                    position: occurrence.position
+                };
             }
-
-            yield candidate;
         }
     }
-    
+
     while (!lhsQueue.isEmpty() || !rhsQueue.isEmpty()) {
         if (iterations++ > maxIterations) break;
         
-        // Alternate between queues for balanced search
         for (const [queue, visited, otherVisited, side, targetExpr] of [
             [lhsQueue, lhsVisited, rhsVisited, 'lhs', rhs],
             [rhsQueue, rhsVisited, lhsVisited, 'rhs', lhs]
@@ -1727,7 +1446,6 @@ function generateProofOptimized(axioms, proofStatement) {
             stats.queueOps++;
             stats.maxDepth = Math.max(stats.maxDepth, current.depth);
             
-            // Check if we've met in the middle (using canonical form)
             if (otherVisited.has(current.canonicalStr)) {
                 const otherState = otherVisited.get(current.canonicalStr);
                 return {
@@ -1736,35 +1454,30 @@ function generateProofOptimized(axioms, proofStatement) {
                 };
             }
             
-            // Generate and explore neighbors
-            for (const rewrite of generateRewrites(current.expr, side, targetExpr)) {
+            for (const rewrite of generateRewrites(current.expr, side)) {
                 const newState = new SearchState(
                     rewrite.expr,
-                    [...current.path, {
-                        expr: rewrite.expr,
-                        rule: `${rewrite.axiom} (${rewrite.direction})`
-                    }],
+                    current,
+                    `${rewrite.axiom} (${rewrite.direction})`,
                     side,
                     current.depth + 1
                 );
                 
-                // Record in proof history
-                proofHistory.push({
-                    from: current.exprStr,
-                    to: newState.exprStr,
-                    rule: `${rewrite.axiom} (${rewrite.direction})`
-                });
+                if (_debugProofHistoryFlag) {
+                    proofHistory.push({
+                        from: current.exprStr,
+                        to: newState.exprStr,
+                        rule: `${rewrite.axiom} (${rewrite.direction})`
+                    });
+                }
                 
-                // Skip if already visited with shorter path.
                 const previous = visited.get(newState.canonicalStr);
 
                 if (previous && previous.depth <= newState.depth) {
                     continue;
                 }
 
-                // Fast-forward: if this new state already exists in the opposite frontier,
-                // the proof is complete now. Do not wait for heap dequeue.
-                const proof = meetState(newState, visited, otherVisited);
+                const proof = meetState(newState, otherVisited);
 
                 if (proof) {
                     return {
@@ -1774,95 +1487,35 @@ function generateProofOptimized(axioms, proofStatement) {
                 }
 
                 visited.set(newState.canonicalStr, newState);
-
-                const fScore = newState.getPriority(targetExpr);
-
-                if (_branchRankMode === "predict_tie") {
-                    queue.enqueue(
-                        newState,
-                        fScore,
-                        makeBranchRankFeatures(rewrite, newState.depth)
-                    );
-                } else {
-                    queue.enqueue(newState, fScore);
-                }
-
-                syncQueueStats();
+                queue.enqueue(newState, newState.getPriority(targetExpr));
                 stats.queueOps++;
-
                 stats.uniqueStates = visited.size + otherVisited.size;
             }
         }
     }
     
-    // No proof found
     return {
         proof: "No proof found within search limits.",
         stats: syncAnnStats()
     };
 }
 
-// Construct the final proof from two meeting paths
-function constructProof(lhsState_, rhsState_) { /* bug */
-    let proof = "Proof Found!\n\n";
-
-    const lhsState = lhsState_.side == "lhs" ? lhsState_ : rhsState_ ;
-    const rhsState = lhsState_.side == "lhs" ? rhsState_ : lhsState_ ;
-    
-    // LHS transformations
-    const rhsStart = rhsState.path[0].expr.join(' ');
-    for (let i = 0; i < lhsState.path.length; i++) {
-        const step = lhsState.path[i];
-        proof += `${step.expr.join(' ')} = ${rhsStart}`;
-        if (step.rule !== 'start') {
-            proof += `, via ${step.rule} (lhs)`;
-        } 
-        proof += '\n';
-    }
-    
-    // RHS transformations (in reverse)
-    const lhsEnd = lhsState.path[lhsState.path.length - 1].expr.join(' ');
-    for (let i = 1; i < rhsState.path.length; i++) {
-        const step = rhsState.path[i];
-        proof += `${lhsEnd} = ${step.expr.join(' ')}, via ${step.rule} (rhs)\n`;
-    }
-    
-    proof += "\nQ.E.D.";
-    return proof;
-}
-
-// Optimized replacement functions
+// Legacy replacement functions retained for quick A/B testing and compatibility.
 function tryReplace(arr, from, to, method) {
     if (from.length > arr.length) return false;
     
     if (method === 'A') {
-        // First occurrence replacement
         for (let i = 0; i <= arr.length - from.length; i++) {
-            let match = true;
-            for (let j = 0; j < from.length; j++) {
-                if (arr[i + j] !== from[j]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                return [...arr.slice(0, i), ...to, ...arr.slice(i + from.length)];
+            if (arraysMatchAt(arr, from, i)) {
+                return replaceAt(arr, from, to, i);
             }
         }
     } else if (method === 'B') {
-        // All occurrences replacement
         let result = [...arr];
         let changed = false;
         
-        for (let i = arr.length - from.length; i >= 0; i--) {
-            let match = true;
-            for (let j = 0; j < from.length; j++) {
-                if (result[i + j] !== from[j]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
+        for (let i = result.length - from.length; i >= 0; i--) {
+            if (arraysMatchAt(result, from, i)) {
                 result.splice(i, from.length, ...to);
                 changed = true;
             }
@@ -1874,7 +1527,6 @@ function tryReplace(arr, from, to, method) {
     return false;
 }
 
-// UI functions
 function updateLineNumbers() {
     const lines = _input.value.split('\n');
     let i = 1;
@@ -1888,17 +1540,15 @@ _input.addEventListener('scroll', function() {
     _lineNumbers.scrollTop = this.scrollTop;
 });
 
-// JavaScript: Persist textarea contents using localStorage
+// JavaScript: Persist textarea contents using localStorage.
 document.addEventListener('DOMContentLoaded', () => {
     const textarea = _input;
 
-    // Load saved value from localStorage if it exists
     const savedText = JSON.parse(localStorage.getItem('lastProof'));
     if (savedText !== null) {
         textarea.value = savedText;
     }
 
-    // Save value to localStorage on _input
     textarea.addEventListener('input', () => {
         localStorage.setItem('lastProof', JSON.stringify(textarea.value, ' ', 2));
     });
@@ -1906,7 +1556,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateLineNumbers();
 });
 
-// Initialize with example including pattern variables
+// Initialize with example including pattern variables.
 _input.value = `// Axioms and Lemmas
 1 + 1 = 2
 2 + 2 = 4
