@@ -98,92 +98,167 @@ const _searchStrategy = {
 const _currentSearchStrategy = _searchStrategy.option._astar; // _astar,_greedy,_adaptive //
 const _canonicalFormFlag = false;
 
-// Binary Heap implementation for O(log n) operations.
-class BinaryHeap {
-    constructor(compareFn) {
-        this.items = [];
-        this.compare = compareFn || ((a, b) => a.priority - b.priority);
+// Unary/bucket priority queue for integer A* f-values.
+// bucket index === f-value.
+// minPriority is the scan offset / lower bound; buckets are not rebased.
+class UnaryPriorityQueue {
+    constructor(maxDirectPriority = 1 << 20) {
+        this.buckets = [];
+        this.occupiedWords = new Uint32Array(32);
+        this.length = 0;
+        this.minPriority = Number.POSITIVE_INFINITY;
+        this.maxDirectPriority = maxDirectPriority;
+
+        // Diagnostics.
+        this.wordScans = 0;
+        this.priorityAdvances = 0;
     }
-    
+
     enqueue(element, priority) {
-        this.items.push({element, priority});
-        this._bubbleUp(this.items.length - 1);
-    }
-    
-    dequeue() {
-        if (this.isEmpty()) return undefined;
-        
-        const result = this.items[0];
-        const end = this.items.pop();
-        
-        if (this.items.length > 0) {
-            this.items[0] = end;
-            this._bubbleDown(0);
+        priority = this._normalizePriority(priority);
+        this._ensurePriority(priority);
+
+        let bucket = this.buckets[priority];
+
+        if (!bucket) {
+            bucket = { items: [], head: 0 };
+            this.buckets[priority] = bucket;
         }
-        
-        return result?.element;
+
+        const wasEmpty = bucket.head >= bucket.items.length;
+        bucket.items.push(element);
+
+        if (wasEmpty) {
+            this._setOccupied(priority);
+
+            if (priority < this.minPriority) {
+                this.minPriority = priority;
+            }
+        }
+
+        this.length++;
+    }
+
+    dequeue() {
+        if (this.length === 0) return undefined;
+
+        const priority = this._nextOccupiedPriority(this.minPriority);
+        if (priority === Number.POSITIVE_INFINITY) return undefined;
+
+        this.minPriority = priority;
+
+        const bucket = this.buckets[priority];
+        const element = bucket.items[bucket.head++];
+
+        this.length--;
+
+        if (bucket.head >= bucket.items.length) {
+            bucket.items.length = 0;
+            bucket.head = 0;
+            this._clearOccupied(priority);
+
+            this.minPriority = this.length === 0
+                ? Number.POSITIVE_INFINITY
+                : this._nextOccupiedPriority(priority + 1);
+        } else if (bucket.head > 64 && bucket.head * 2 > bucket.items.length) {
+            // Avoid unbounded retained dead slots in long-lived equal-priority buckets.
+            bucket.items = bucket.items.slice(bucket.head);
+            bucket.head = 0;
+        }
+
+        return element;
     }
 
     peekPriority() {
-        return this.items[0]?.priority ?? Number.POSITIVE_INFINITY;
+        if (this.length === 0) return Number.POSITIVE_INFINITY;
+        return this._nextOccupiedPriority(this.minPriority);
     }
-    
-    isEmpty() {
-        return this.items.length === 0;
-    }
-    
-    size() {
-        return this.items.length;
-    }
-    
-    _bubbleUp(idx) {
-        const element = this.items[idx];
-        
-        while (idx > 0) {
-            const parentIdx = Math.floor((idx - 1) / 2);
-            const parent = this.items[parentIdx];
-            
-            if (this.compare(element, parent) >= 0) break;
-            
-            this.items[idx] = parent;
-            idx = parentIdx;
-        }
-        
-        this.items[idx] = element;
-    }
-    
-    _bubbleDown(idx) {
-        const element = this.items[idx];
-        const length = this.items.length;
-        
-        while (true) {
-            const leftChildIdx = 2 * idx + 1;
-            const rightChildIdx = 2 * idx + 2;
-            let swap = -1;
-            
-            if (leftChildIdx < length) {
-                const leftChild = this.items[leftChildIdx];
-                if (this.compare(leftChild, element) < 0) {
-                    swap = leftChildIdx;
-                }
-            }
-            
-            if (rightChildIdx < length) {
-                const rightChild = this.items[rightChildIdx];
-                const leftForCompare = swap === -1 ? element : this.items[leftChildIdx];
 
-                if (this.compare(rightChild, leftForCompare) < 0) {
-                    swap = rightChildIdx;
-                }
-            }
-            
-            if (swap === -1) break;
-            
-            this.items[idx] = this.items[swap];
-            idx = swap;
+    isEmpty() {
+        return this.length === 0;
+    }
+
+    size() {
+        return this.length;
+    }
+
+    _normalizePriority(priority) {
+        if (!Number.isFinite(priority)) {
+            throw new Error(`UnaryPriorityQueue priority must be finite. Received: ${priority}`);
         }
-        
-        this.items[idx] = element;
+
+        priority = Math.trunc(priority);
+
+        if (priority < 0) {
+            throw new Error(`UnaryPriorityQueue priority must be >= 0. Received: ${priority}`);
+        }
+
+        if (priority > this.maxDirectPriority) {
+            throw new Error(
+                `UnaryPriorityQueue priority ${priority} exceeds maxDirectPriority ${this.maxDirectPriority}. ` +
+                `Increase maxDirectPriority or use BinaryHeap for sparse/high f-values.`
+            );
+        }
+
+        return priority;
+    }
+
+    _ensurePriority(priority) {
+        const requiredWords = (priority >> 5) + 1;
+
+        if (requiredWords <= this.occupiedWords.length) return;
+
+        let nextWords = this.occupiedWords.length || 1;
+
+        while (nextWords < requiredWords) {
+            nextWords <<= 1;
+        }
+
+        const grown = new Uint32Array(nextWords);
+        grown.set(this.occupiedWords);
+        this.occupiedWords = grown;
+    }
+
+    _setOccupied(priority) {
+        this.occupiedWords[priority >> 5] |= (1 << (priority & 31));
+    }
+
+    _clearOccupied(priority) {
+        this.occupiedWords[priority >> 5] &= ~(1 << (priority & 31));
+    }
+
+    _nextOccupiedPriority(fromPriority) {
+        let wordIndex = fromPriority >> 5;
+        const bitOffset = fromPriority & 31;
+
+        if (wordIndex >= this.occupiedWords.length) {
+            return Number.POSITIVE_INFINITY;
+        }
+
+        let word = this.occupiedWords[wordIndex] & (-1 << bitOffset);
+
+        while (wordIndex < this.occupiedWords.length) {
+            this.wordScans++;
+
+            if (word !== 0) {
+                const lowestBit = word & -word;
+                const bitIndex = 31 - Math.clz32(lowestBit);
+                const priority = (wordIndex << 5) + bitIndex;
+
+                if (priority > fromPriority) {
+                    this.priorityAdvances += priority - fromPriority;
+                }
+
+                return priority;
+            }
+
+            wordIndex++;
+            word = wordIndex < this.occupiedWords.length
+                ? this.occupiedWords[wordIndex]
+                : 0;
+        }
+
+        return Number.POSITIVE_INFINITY;
     }
 }
 
@@ -613,6 +688,8 @@ function solveProblem() {
         States explored: ${result.stats.statesExplored}<br>
         Unique states: ${result.stats.uniqueStates}<br>
         Queue operations: ${result.stats.queueOps}<br>
+        Unary queue word scans: ${result.stats.unaryQueueWordScans}<br>
+        Unary queue priority advances: ${result.stats.unaryQueuePriorityAdvances}<br>
         Search depth: ${result.stats.maxDepth}<br>
         Strategy: ${result.stats.strategy}<br>
         Token count: ${result.stats.tokenCount}<br>
@@ -725,6 +802,9 @@ function generateProofOptimized(axioms, proofStatement) {
         tallyRuleRejects: 0,
         tallyRulePasses: 0,
 
+        unaryQueueWordScans: 0,
+        unaryQueuePriorityAdvances: 0,
+
         meetChecks: 0,
         fastForwardHits: 0
     };
@@ -831,13 +911,15 @@ function generateProofOptimized(axioms, proofStatement) {
             proof += `${lhsEnd} = ${exprToString(step.expr)}, via ${step.rule} (rhs)\n`;
         }
         
+        updateQueueStats();
+
         proof += "\nQ.E.D.";
         stats.proofSteps = Math.max(0, lhsPath.length + rhsPath.length - 1);
         return proof;
     }
 
-    const lhsQueue = new BinaryHeap();
-    const rhsQueue = new BinaryHeap();
+    const lhsQueue = new UnaryPriorityQueue();
+    const rhsQueue = new UnaryPriorityQueue();
     const lhsVisited = new Map();
     const rhsVisited = new Map();
     
@@ -848,6 +930,11 @@ function generateProofOptimized(axioms, proofStatement) {
     rhsQueue.enqueue(rhsStart, rhsStart.getPriority(lhs));
     lhsVisited.set(lhsStart.canonicalStr, lhsStart);
     rhsVisited.set(rhsStart.canonicalStr, rhsStart);
+
+    function updateQueueStats() {
+        stats.unaryQueueWordScans = lhsQueue.wordScans + rhsQueue.wordScans;
+        stats.unaryQueuePriorityAdvances = lhsQueue.priorityAdvances + rhsQueue.priorityAdvances;
+    }
 
     function meetState(candidateState, oppositeVisited) {
         if (!_bidirectionalFastForwardFlag) return null;
