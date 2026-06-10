@@ -15,6 +15,7 @@
  * 
  */
 
+const _maxIterations = 1e4; // default 10,000 //
 const _bidirectionalFastForwardFlag = true;
 
 // Hot-loop diagnostics. Keep false for benchmarking.
@@ -704,7 +705,7 @@ function generateProofOptimized(axioms, proofStatement) {
     const rhsStr = exprToString(rhs);
 
     let iterations = 0;
-    const maxIterations = 10000;
+    const maxIterations = _maxIterations;
     
     const stats = {
         statesExplored: 0,
