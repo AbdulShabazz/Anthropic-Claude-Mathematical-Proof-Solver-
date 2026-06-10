@@ -20,6 +20,10 @@ const _bidirectionalFastForwardFlag = true;
 // Hot-loop diagnostics. Keep false for benchmarking.
 const _debugProofHistoryFlag = false;
 
+// Candidate-width priority term for A*. Keep this small while benchmarking.
+// Lower f is better; best candidate per rewrite direction receives zero penalty.
+const _rewriteWidthScoreWeight = 1;
+
 let _tokenStore = null;
 
 class TokenStore {
@@ -767,26 +771,38 @@ function generateProofOptimized(axioms, proofStatement) {
         return h;
     }
 
-    class SearchState {
-        constructor(expr, parent, rule, side, depth = 0, searchStrategy = _currentSearchStrategy.config) {
-            this.expr = expr;
-            this.parent = parent;
-            this.rule = rule || 'start';
-            this.side = side;
-            this.depth = depth;
-            this.searchStrategy = searchStrategy;
+class SearchState {
+    constructor(
+        expr,
+        parent,
+        rule,
+        side,
+        depth = 0,
+        searchStrategy = _currentSearchStrategy.config,
+        rewriteWidthScore = 0
+    ) {
+        this.expr = expr;
+        this.parent = parent;
+        this.rule = rule || 'start';
+        this.side = side;
+        this.depth = depth;
+        this.searchStrategy = searchStrategy;
+        this.rewriteWidthScore = rewriteWidthScore;
 
-            this.canonicalExpr = _canonicalFormFlag ? canonicalize(expr) : expr;
-            this.canonicalStr = exprKey(this.canonicalExpr);
-            this.exprStr = exprToString(expr);
-        }
-        
-        getPriority(targetExpr) {
-            const g = this.depth;
-            const h = heuristic(this.canonicalExpr, targetExpr);
-            return ((this.searchStrategy == 'a*') || ((this.searchStrategy == 'adaptive') && (iterations > (maxIterations * .1))) ? g : 0) + h;
-        }
+        this.canonicalExpr = _canonicalFormFlag ? canonicalize(expr) : expr;
+        this.canonicalStr = exprKey(this.canonicalExpr);
+        this.exprStr = exprToString(expr);
     }
+    
+    getPriority(targetExpr) {
+        const g = this.depth;
+        const h = heuristic(this.canonicalExpr, targetExpr);
+        const widthPenalty = this.rewriteWidthScore * _rewriteWidthScoreWeight;
+        const depthTerm = ((this.searchStrategy == 'a*') || ((this.searchStrategy == 'adaptive') && (iterations > (maxIterations * .1)))) ? g : 0;
+
+        return depthTerm + h + widthPenalty;
+    }
+}
 
     function unwindPath(state) {
         const path = [];
@@ -864,10 +880,42 @@ function generateProofOptimized(axioms, proofStatement) {
         return null;
     }
 
+    function assignRewriteWidthScores(candidates) {
+        let widestExpand = Number.NEGATIVE_INFINITY;
+        let shortestReduce = Number.POSITIVE_INFINITY;
+
+        for (const candidate of candidates) {
+            const length = candidate.expr.length;
+
+            if (candidate.direction === 'expand') {
+                widestExpand = Math.max(widestExpand, length);
+            } else if (candidate.direction === 'reduce') {
+                shortestReduce = Math.min(shortestReduce, length);
+            }
+        }
+
+        for (const candidate of candidates) {
+            const length = candidate.expr.length;
+
+            if (candidate.direction === 'expand' && widestExpand !== Number.NEGATIVE_INFINITY) {
+                // Widest resulting expansion is best: zero penalty.
+                candidate.rewriteWidthScore = widestExpand - length;
+            } else if (candidate.direction === 'reduce' && shortestReduce !== Number.POSITIVE_INFINITY) {
+                // Shortest resulting reduction is best: zero penalty.
+                candidate.rewriteWidthScore = length - shortestReduce;
+            } else {
+                candidate.rewriteWidthScore = 0;
+            }
+        }
+
+        return candidates;
+    }
+
     function* generateRewrites(expr, side) {
         const indexed = buildPositionIndexAndTally(expr);
         const positionIndex = indexed.positionIndex;
         const exprTally = indexed.tally;
+        const candidates = [];
         stats.positionIndexBuilds++;
 
         const relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
@@ -886,14 +934,19 @@ function generateProofOptimized(axioms, proofStatement) {
                 const resultExpr = occurrence.resultExpr || replaceAt(expr, rule.from, occurrence.to, occurrence.position);
                 stats.rewriteCandidatesYielded++;
 
-                yield {
+                candidates.push({
                     expr: resultExpr,
                     axiom: rule.axiomID,
                     direction: rule.direction,
                     method: occurrence.method,
-                    position: occurrence.position
-                };
+                    position: occurrence.position,
+                    rewriteWidthScore: 0
+                });
             }
+        }
+
+        for (const candidate of assignRewriteWidthScores(candidates)) {
+            yield candidate;
         }
     }
 
@@ -927,7 +980,9 @@ function generateProofOptimized(axioms, proofStatement) {
                     current,
                     `${rewrite.axiom} (${rewrite.direction})`,
                     side,
-                    current.depth + 1
+                    current.depth + 1,
+                    current.searchStrategy,
+                    rewrite.rewriteWidthScore
                 );
                 
                 if (_debugProofHistoryFlag) {
