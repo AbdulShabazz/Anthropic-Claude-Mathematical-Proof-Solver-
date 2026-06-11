@@ -188,8 +188,49 @@ class BinaryHeap {
     }
 }
 
+// Add a safe tally signature
+function tokenTallySignature(expr) {
+    const counts = new Map();
+
+    for (const token of expr) {
+        counts.set(token, (counts.get(token) || 0) + 1);
+    }
+
+    return Array.from(counts.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([token, count]) => `${token}:${count}`)
+        .join('|');
+}
+
+function tokenTallyDistance(expr1, expr2) {
+    const counts = new Map();
+
+    for (const token of expr1) {
+        counts.set(token, (counts.get(token) || 0) + 1);
+    }
+
+    for (const token of expr2) {
+        counts.set(token, (counts.get(token) || 0) - 1);
+    }
+
+    let distance = 0;
+
+    for (const delta of counts.values()) {
+        distance += Math.abs(delta);
+    }
+
+    return distance;
+}
+
 function canonicalize(expr) {
+
+    // Sound default: canonical form is exact token sequence.
+    // No semantic assumptions about operators, associativity, or commutativity.
+
+    /* 
+    
     // Simple canonicalization: sort sequences of additions.
+
     const result = [...expr];
     const plusToken = _tokenStore?.tokenToId.get('+');
 
@@ -218,6 +259,8 @@ function canonicalize(expr) {
             }
         }
     }
+
+    */
     
     return result;
 }
@@ -758,8 +801,13 @@ function generateProofOptimized(axioms, proofStatement) {
         }
 
         h += (tokens1.size + tokens2.size - 2 * commonCount);
+
+        // Syntax-agnostic token inventory distance.
+        // Safe as a heuristic term because it does not declare expressions equal.
+        h += tokenTallyDistance(arr1, arr2);
         
         const minLen = Math.min(arr1.length, arr2.length);
+
         for (let i = 0; i < minLen; i++) {
             if (arr1[i] !== arr2[i]) h += 1;
         }
