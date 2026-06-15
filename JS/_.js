@@ -99,9 +99,12 @@ const _searchStrategy = {
 const _currentSearchStrategy = _searchStrategy.option._astar; // _astar,_greedy,_adaptive //
 const _canonicalFormFlag = false;
 
-// Global branch-hash -> directed rewrite-rule index hint cache.
-// Map.size is used as the hash-map length bound for prefix probing.
+// Global exact-branch -> directed rewrite-rule index hint cache.
 let _AllRewriteRules = new Map();
+
+// Fast mode: if the hinted rule yields candidates, skip the full rule scan.
+// This is faster, but less exhaustive than the original complete expansion.
+const _allRewriteRulesFastPathFlag = false;
 
 // Binary Heap implementation for O(log n) operations.
 class BinaryHeap {
@@ -273,8 +276,8 @@ function exprKey(expr) {
     return expr.join(' ');
 }
 
-function allRewriteRuleBranchKey(side, prefixKey) {
-    return `${side}|${prefixKey}`;
+function allRewriteRuleBranchKey(side, branchKey) {
+    return `${side}|${branchKey}`;
 }
 
 function findAllRewriteRuleKey(expr, side) {
@@ -282,18 +285,11 @@ function findAllRewriteRuleKey(expr, side) {
         return { key: null, ruleIndex: -1 };
     }
 
-    const maxProbeLength = Math.min(expr.length, _AllRewriteRules.size);
-    let prefixKey = '';
+    const key = allRewriteRuleBranchKey(side, exprKey(expr));
+    const ruleIndex = _AllRewriteRules.get(key);
 
-    for (let i = 0; i < maxProbeLength; i++) {
-        prefixKey += (i === 0 ? '' : ' ') + expr[i];
-
-        const branchKey = allRewriteRuleBranchKey(side, prefixKey);
-        const ruleIndex = _AllRewriteRules.get(branchKey);
-
-        if (ruleIndex !== undefined) {
-            return { key: branchKey, ruleIndex };
-        }
+    if (Number.isInteger(ruleIndex)) {
+        return { key, ruleIndex };
     }
 
     return { key: null, ruleIndex: -1 };
@@ -304,16 +300,12 @@ function rememberAllRewriteRuleKey(expr, side, ruleIndex) {
         return null;
     }
 
-    const existing = findAllRewriteRuleKey(expr, side);
+    const key = allRewriteRuleBranchKey(side, exprKey(expr));
 
-    if (existing.key !== null) {
-        return existing.key;
-    }
+    // Exact branch key only. Prefix keys were causing map growth and extra scans.
+    _AllRewriteRules.set(key, ruleIndex);
 
-    const branchKey = allRewriteRuleBranchKey(side, exprKey(expr));
-    _AllRewriteRules.set(branchKey, ruleIndex);
-
-    return branchKey;
+    return key;
 }
 
 function getAllRewriteRuleIndex(branchKey) {
@@ -321,6 +313,39 @@ function getAllRewriteRuleIndex(branchKey) {
 
     const ruleIndex = _AllRewriteRules.get(branchKey);
     return Number.isInteger(ruleIndex) ? ruleIndex : -1;
+}
+
+function ruleHasOccurrence(expr, rule, positionIndex) {
+    for (const _occurrence of matchRuleOccurrences(expr, rule, positionIndex)) {
+        return true;
+    }
+
+    return false;
+}
+
+function rememberNextRewriteRuleKey(expr, side) {
+    if (!Array.isArray(expr) || expr.length === 0) return null;
+
+    const indexed = buildPositionIndexAndTally(expr);
+    const positionIndex = indexed.positionIndex;
+    const exprTally = indexed.tally;
+
+    // Preserve existing rule-index order. No sort.
+    const relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
+
+    for (const rule of relevantRules) {
+        if (!tallyContainsRule(exprTally, expr.length, rule)) {
+            continue;
+        }
+
+        if (!ruleHasOccurrence(expr, rule, positionIndex)) {
+            continue;
+        }
+
+        return rememberAllRewriteRuleKey(expr, side, rule.ruleIndex);
+    }
+
+    return null;
 }
 
 function findPatternAnchor(tokens) {
@@ -732,6 +757,7 @@ function solveProblem() {
         _AllRewriteRules hits: ${result.stats.allRewriteRuleHits}<br>
         _AllRewriteRules misses: ${result.stats.allRewriteRuleMisses}<br>
         _AllRewriteRules yielded candidates: ${result.stats.allRewriteRuleCandidatesYielded}<br>
+        _AllRewriteRules fast-path skips: ${result.stats.allRewriteRuleFastPathSkips}<br>
         Debug proof history: ${_debugProofHistoryFlag ? 'on' : 'off'}<br>
         Tally rule rejects: ${result.stats.tallyRuleRejects}<br>
         Tally rule passes: ${result.stats.tallyRulePasses}<br>
@@ -837,6 +863,7 @@ function generateProofOptimized(axioms, proofStatement) {
         allRewriteRuleHits: 0,
         allRewriteRuleMisses: 0,
         allRewriteRuleCandidatesYielded: 0,
+        allRewriteRuleFastPathSkips: 0,
 
         tallyRuleRejects: 0,
         tallyRulePasses: 0,
@@ -991,16 +1018,30 @@ function generateProofOptimized(axioms, proofStatement) {
         const positionIndex = indexed.positionIndex;
         const exprTally = indexed.tally;
         const emittedRuleIDs = new Set();
+        let rememberedProductiveRule = false;
+
         stats.positionIndexBuilds++;
 
+        function rememberProductiveRule(rule) {
+            if (rememberedProductiveRule || !rule) return;
+
+            // Store the rule that actually works for the CURRENT branch.
+            rememberAllRewriteRuleKey(expr, side, rule.ruleIndex);
+            rememberedProductiveRule = true;
+        }
+
         function* emitRuleMatches(rule, fromAllRewriteRules) {
-            if (!rule || emittedRuleIDs.has(rule.ruleID)) return;
+            let yieldedCount = 0;
+
+            if (!rule || emittedRuleIDs.has(rule.ruleID)) {
+                return yieldedCount;
+            }
 
             emittedRuleIDs.add(rule.ruleID);
 
             if (!tallyContainsRule(exprTally, expr.length, rule)) {
                 stats.tallyRuleRejects++;
-                return;
+                return yieldedCount;
             }
 
             stats.tallyRulePasses++;
@@ -1008,6 +1049,10 @@ function generateProofOptimized(axioms, proofStatement) {
 
             for (const occurrence of matchRuleOccurrences(expr, rule, positionIndex)) {
                 const resultExpr = occurrence.resultExpr || replaceAt(expr, rule.from, occurrence.to, occurrence.position);
+
+                yieldedCount++;
+                rememberProductiveRule(rule);
+
                 stats.rewriteCandidatesYielded++;
 
                 if (fromAllRewriteRules) {
@@ -1023,6 +1068,8 @@ function generateProofOptimized(axioms, proofStatement) {
                     ruleIndex: rule.ruleIndex
                 };
             }
+
+            return yieldedCount;
         }
 
         if (preferredRuleIndex >= 0) {
@@ -1062,21 +1109,18 @@ function generateProofOptimized(axioms, proofStatement) {
                 };
             }
             
-            let currentRuleIndex = getAllRewriteRuleIndex(current.rewriteRuleKey);
+            const currentRuleHint = findAllRewriteRuleKey(current.expr, side);
+            const currentRuleIndex = currentRuleHint.ruleIndex;
 
-            if (current.rewriteRuleKey !== null) {
-                stats.allRewriteRuleLookups++;
+            stats.allRewriteRuleLookups++;
 
-                if (currentRuleIndex >= 0) {
-                    stats.allRewriteRuleHits++;
-                } else {
-                    stats.allRewriteRuleMisses++;
-                }
+            if (currentRuleIndex >= 0) {
+                stats.allRewriteRuleHits++;
+            } else {
+                stats.allRewriteRuleMisses++;
             }
 
             for (const rewrite of generateRewrites(current.expr, side, currentRuleIndex)) {
-                const rewriteRuleKey = rememberAllRewriteRuleKey(rewrite.expr, side, rewrite.ruleIndex);
-
                 const newState = new SearchState(
                     rewrite.expr,
                     current,
@@ -1084,7 +1128,7 @@ function generateProofOptimized(axioms, proofStatement) {
                     side,
                     current.depth + 1,
                     _currentSearchStrategy.config,
-                    rewriteRuleKey
+                    null
                 );
                 
                 if (_debugProofHistoryFlag) {
@@ -1109,6 +1153,11 @@ function generateProofOptimized(axioms, proofStatement) {
                         stats
                     };
                 }
+
+                // Compute the child branch's NEXT productive rewrite rule
+                // only after the child survives visited/meet filtering,
+                // but before it enters the binary heap.
+                newState.rewriteRuleKey = rememberNextRewriteRuleKey(newState.expr, side);
 
                 visited.set(newState.canonicalStr, newState);
                 queue.enqueue(newState, newState.getPriority(targetExpr));
