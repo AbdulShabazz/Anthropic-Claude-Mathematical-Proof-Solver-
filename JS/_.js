@@ -1109,8 +1109,7 @@ function generateProofOptimized(axioms, proofStatement) {
                 };
             }
             
-            const currentRuleHint = findAllRewriteRuleKey(current.expr, side);
-            const currentRuleIndex = currentRuleHint.ruleIndex;
+            const currentRuleIndex = getAllRewriteRuleIndex(current.rewriteRuleKey);
 
             stats.allRewriteRuleLookups++;
 
