@@ -98,6 +98,11 @@ const _searchStrategy = {
 const _currentSearchStrategy = _searchStrategy.option._astar; // _astar,_greedy,_adaptive //
 const _canonicalFormFlag = false;
 
+// Optional exact-branch -> next directed rewrite-rule index cache.
+// This is a rule-ordering hint, not a proof-pruning mechanism.
+const _allRewriteRulesHintFlag = true;
+let _AllRewriteRules = new Map();
+
 // Unary/bucket priority queue for integer A* f-values.
 // bucket index === f-value.
 // minPriority is the scan offset / lower bound; buckets are not rebased.
@@ -300,6 +305,68 @@ function exprKey(expr) {
     return expr.join(' ');
 }
 
+function allRewriteRuleBranchKey(side, expr) {
+    return `${side}|${exprKey(expr)}`;
+}
+
+function rememberAllRewriteRuleHint(expr, side, ruleIndex) {
+    if (!_allRewriteRulesHintFlag) {
+        return { key: null, ruleIndex: -1 };
+    }
+
+    if (!Number.isInteger(ruleIndex) || ruleIndex < 0 || !Array.isArray(expr) || expr.length === 0) {
+        return { key: null, ruleIndex: -1 };
+    }
+
+    const key = allRewriteRuleBranchKey(side, expr);
+    _AllRewriteRules.set(key, ruleIndex);
+
+    return { key, ruleIndex };
+}
+
+function ruleHasOccurrence(expr, rule, positionIndex) {
+    for (const _occurrence of matchRuleOccurrences(expr, rule, positionIndex)) {
+        return true;
+    }
+
+    return false;
+}
+
+function rememberNextRewriteRuleHint(expr, side, stats = null) {
+    if (!_allRewriteRulesHintFlag || !Array.isArray(expr) || expr.length === 0) {
+        return { key: null, ruleIndex: -1 };
+    }
+
+    const indexed = buildPositionIndexAndTally(expr);
+    const positionIndex = indexed.positionIndex;
+    const exprTally = indexed.tally;
+
+    if (stats) {
+        stats.allRewriteRulePreviewBuilds++;
+    }
+
+    const relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
+
+    if (stats) {
+        stats.allRewriteRulePreviewScans++;
+    }
+
+    // Preserve the current rule-index order. No sort.
+    for (const rule of relevantRules) {
+        if (!tallyContainsRule(exprTally, expr.length, rule)) {
+            continue;
+        }
+
+        if (!ruleHasOccurrence(expr, rule, positionIndex)) {
+            continue;
+        }
+
+        return rememberAllRewriteRuleHint(expr, side, rule.ruleIndex);
+    }
+
+    return { key: null, ruleIndex: -1 };
+}
+
 function findPatternAnchor(tokens) {
     for (let i = 0; i < tokens.length; i++) {
         if (!isPatternToken(tokens[i])) {
@@ -319,10 +386,12 @@ function compileRewriteRules(axioms) {
 
     const addRule = (axiom, axiomIndex, from, to, orientation) => {
         const anchor = findPatternAnchor(from);
+        const ruleIndex = ruleOrdinal++;
 
         rules.push({
             // Unique rule identity. Do not derive this only from axiomID.
-            ruleID: `rule_${ruleOrdinal++}`,
+            ruleIndex,
+            ruleID: `rule_${ruleIndex}`,
 
             axiomID: axiom.axiomID,
             guidZ: axiom.guidZ,
@@ -361,6 +430,7 @@ function compileRewriteRules(axioms) {
 
 class RewriteRuleIndex {
     constructor(rules) {
+        this.rules = rules;
         this.literalFirstTokenToRules = new Map();
         this.patternAnchorToRules = new Map();
         this.floatingPatternRules = [];
@@ -376,6 +446,10 @@ class RewriteRuleIndex {
         }
 
         map.get(key).push(rule);
+    }
+
+    getRuleByIndex(ruleIndex) {
+        return Number.isInteger(ruleIndex) ? this.rules[ruleIndex] : null;
     }
 
     addRule(rule) {
@@ -673,6 +747,7 @@ function solveProblem() {
 
     heuristicCache = new HeuristicCache();
     proofHistory = [];
+    _AllRewriteRules = new Map();
 
     const rewriteRules = compileRewriteRules(axioms);
     rewriteRuleIndex = new RewriteRuleIndex(rewriteRules);
@@ -690,6 +765,13 @@ function solveProblem() {
         Queue operations: ${result.stats.queueOps}<br>
         Unary queue word scans: ${result.stats.unaryQueueWordScans}<br>
         Unary queue priority advances: ${result.stats.unaryQueuePriorityAdvances}<br>
+        _AllRewriteRules size: ${_AllRewriteRules.size}<br>
+        _AllRewriteRules lookups: ${result.stats.allRewriteRuleLookups}<br>
+        _AllRewriteRules hits: ${result.stats.allRewriteRuleHits}<br>
+        _AllRewriteRules misses: ${result.stats.allRewriteRuleMisses}<br>
+        _AllRewriteRules yielded candidates: ${result.stats.allRewriteRuleCandidatesYielded}<br>
+        _AllRewriteRules preview builds: ${result.stats.allRewriteRulePreviewBuilds}<br>
+        _AllRewriteRules preview scans: ${result.stats.allRewriteRulePreviewScans}<br>
         Search depth: ${result.stats.maxDepth}<br>
         Strategy: ${result.stats.strategy}<br>
         Token count: ${result.stats.tokenCount}<br>
@@ -805,6 +887,13 @@ function generateProofOptimized(axioms, proofStatement) {
         unaryQueueWordScans: 0,
         unaryQueuePriorityAdvances: 0,
 
+        allRewriteRuleLookups: 0,
+        allRewriteRuleHits: 0,
+        allRewriteRuleMisses: 0,
+        allRewriteRuleCandidatesYielded: 0,
+        allRewriteRulePreviewBuilds: 0,
+        allRewriteRulePreviewScans: 0,
+
         meetChecks: 0,
         fastForwardHits: 0
     };
@@ -848,13 +937,15 @@ function generateProofOptimized(axioms, proofStatement) {
     }
 
     class SearchState {
-        constructor(expr, parent, rule, side, depth = 0, searchStrategy = _currentSearchStrategy.config) {
+        constructor(expr, parent, rule, side, depth = 0, searchStrategy = _currentSearchStrategy.config, rewriteRuleKey = null, rewriteRuleIndex = -1) {
             this.expr = expr;
             this.parent = parent;
             this.rule = rule || 'start';
             this.side = side;
             this.depth = depth;
             this.searchStrategy = searchStrategy;
+            this.rewriteRuleKey = rewriteRuleKey;
+            this.rewriteRuleIndex = Number.isInteger(rewriteRuleIndex) ? rewriteRuleIndex : -1;
 
             this.canonicalExpr = _canonicalFormFlag ? canonicalize(expr) : expr;
             this.canonicalStr = exprKey(this.canonicalExpr);
@@ -951,19 +1042,24 @@ function generateProofOptimized(axioms, proofStatement) {
         return null;
     }
 
-    function* generateRewrites(expr, side) {
+    function* generateRewrites(expr, side, preferredRuleIndex = -1) {
         const indexed = buildPositionIndexAndTally(expr);
         const positionIndex = indexed.positionIndex;
         const exprTally = indexed.tally;
+        const emittedRuleIDs = new Set();
+
         stats.positionIndexBuilds++;
 
-        const relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
-        stats.ruleIndexScans++;
+        function* emitRuleMatches(rule, fromAllRewriteRules) {
+            if (!rule || emittedRuleIDs.has(rule.ruleID)) {
+                return;
+            }
 
-        for (const rule of relevantRules) {
+            emittedRuleIDs.add(rule.ruleID);
+
             if (!tallyContainsRule(exprTally, expr.length, rule)) {
                 stats.tallyRuleRejects++;
-                continue;
+                return;
             }
 
             stats.tallyRulePasses++;
@@ -971,16 +1067,34 @@ function generateProofOptimized(axioms, proofStatement) {
 
             for (const occurrence of matchRuleOccurrences(expr, rule, positionIndex)) {
                 const resultExpr = occurrence.resultExpr || replaceAt(expr, rule.from, occurrence.to, occurrence.position);
+
                 stats.rewriteCandidatesYielded++;
+
+                if (fromAllRewriteRules) {
+                    stats.allRewriteRuleCandidatesYielded++;
+                }
 
                 yield {
                     expr: resultExpr,
                     axiom: rule.axiomID,
                     direction: rule.direction,
                     method: occurrence.method,
-                    position: occurrence.position
+                    position: occurrence.position,
+                    ruleIndex: rule.ruleIndex
                 };
             }
+        }
+
+        if (_allRewriteRulesHintFlag && preferredRuleIndex >= 0) {
+            const preferredRule = rewriteRuleIndex.getRuleByIndex(preferredRuleIndex);
+            yield* emitRuleMatches(preferredRule, true);
+        }
+
+        const relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
+        stats.ruleIndexScans++;
+
+        for (const rule of relevantRules) {
+            yield* emitRuleMatches(rule, false);
         }
     }
 
@@ -1007,8 +1121,20 @@ function generateProofOptimized(axioms, proofStatement) {
                     stats
                 };
             }
+
+            const currentRuleIndex = _allRewriteRulesHintFlag ? current.rewriteRuleIndex : -1;
+
+            if (_allRewriteRulesHintFlag) {
+                stats.allRewriteRuleLookups++;
+
+                if (currentRuleIndex >= 0) {
+                    stats.allRewriteRuleHits++;
+                } else {
+                    stats.allRewriteRuleMisses++;
+                }
+            }
             
-            for (const rewrite of generateRewrites(current.expr, side)) {
+            for (const rewrite of generateRewrites(current.expr, side, currentRuleIndex)) {
                 const newState = new SearchState(
                     rewrite.expr,
                     current,
@@ -1038,6 +1164,12 @@ function generateProofOptimized(axioms, proofStatement) {
                         proof,
                         stats
                     };
+                }
+
+                if (_allRewriteRulesHintFlag) {
+                    const hint = rememberNextRewriteRuleHint(newState.expr, side, stats);
+                    newState.rewriteRuleKey = hint.key;
+                    newState.rewriteRuleIndex = hint.ruleIndex;
                 }
 
                 visited.set(newState.canonicalStr, newState);
