@@ -99,6 +99,10 @@ const _searchStrategy = {
 const _currentSearchStrategy = _searchStrategy.option._astar; // _astar,_greedy,_adaptive //
 const _canonicalFormFlag = false;
 
+// Global branch-hash -> directed rewrite-rule index hint cache.
+// Map.size is used as the hash-map length bound for prefix probing.
+let _AllRewriteRules = new Map();
+
 // Binary Heap implementation for O(log n) operations.
 class BinaryHeap {
     constructor(compareFn) {
@@ -269,6 +273,56 @@ function exprKey(expr) {
     return expr.join(' ');
 }
 
+function allRewriteRuleBranchKey(side, prefixKey) {
+    return `${side}|${prefixKey}`;
+}
+
+function findAllRewriteRuleKey(expr, side) {
+    if (!_AllRewriteRules || _AllRewriteRules.size === 0 || !Array.isArray(expr) || expr.length === 0) {
+        return { key: null, ruleIndex: -1 };
+    }
+
+    const maxProbeLength = Math.min(expr.length, _AllRewriteRules.size);
+    let prefixKey = '';
+
+    for (let i = 0; i < maxProbeLength; i++) {
+        prefixKey += (i === 0 ? '' : ' ') + expr[i];
+
+        const branchKey = allRewriteRuleBranchKey(side, prefixKey);
+        const ruleIndex = _AllRewriteRules.get(branchKey);
+
+        if (ruleIndex !== undefined) {
+            return { key: branchKey, ruleIndex };
+        }
+    }
+
+    return { key: null, ruleIndex: -1 };
+}
+
+function rememberAllRewriteRuleKey(expr, side, ruleIndex) {
+    if (!Number.isInteger(ruleIndex) || ruleIndex < 0 || !Array.isArray(expr) || expr.length === 0) {
+        return null;
+    }
+
+    const existing = findAllRewriteRuleKey(expr, side);
+
+    if (existing.key !== null) {
+        return existing.key;
+    }
+
+    const branchKey = allRewriteRuleBranchKey(side, exprKey(expr));
+    _AllRewriteRules.set(branchKey, ruleIndex);
+
+    return branchKey;
+}
+
+function getAllRewriteRuleIndex(branchKey) {
+    if (branchKey === null || branchKey === undefined) return -1;
+
+    const ruleIndex = _AllRewriteRules.get(branchKey);
+    return Number.isInteger(ruleIndex) ? ruleIndex : -1;
+}
+
 function findPatternAnchor(tokens) {
     for (let i = 0; i < tokens.length; i++) {
         if (!isPatternToken(tokens[i])) {
@@ -288,10 +342,12 @@ function compileRewriteRules(axioms) {
 
     const addRule = (axiom, axiomIndex, from, to, orientation) => {
         const anchor = findPatternAnchor(from);
+        const ruleIndex = ruleOrdinal++;
 
         rules.push({
             // Unique rule identity. Do not derive this only from axiomID.
-            ruleID: `rule_${ruleOrdinal++}`,
+            ruleIndex,
+            ruleID: `rule_${ruleIndex}`,
 
             axiomID: axiom.axiomID,
             guidZ: axiom.guidZ,
@@ -330,6 +386,7 @@ function compileRewriteRules(axioms) {
 
 class RewriteRuleIndex {
     constructor(rules) {
+        this.rules = rules;
         this.literalFirstTokenToRules = new Map();
         this.patternAnchorToRules = new Map();
         this.floatingPatternRules = [];
@@ -345,6 +402,10 @@ class RewriteRuleIndex {
         }
 
         map.get(key).push(rule);
+    }
+
+    getRuleByIndex(ruleIndex) {
+        return Number.isInteger(ruleIndex) ? this.rules[ruleIndex] : null;
     }
 
     addRule(rule) {
@@ -642,6 +703,7 @@ function solveProblem() {
 
     heuristicCache = new HeuristicCache();
     proofHistory = [];
+    _AllRewriteRules = new Map();
 
     const rewriteRules = compileRewriteRules(axioms);
     rewriteRuleIndex = new RewriteRuleIndex(rewriteRules);
@@ -665,6 +727,11 @@ function solveProblem() {
         Rule match attempts: ${result.stats.ruleMatchAttempts}<br>
         Rewrite candidates yielded: ${result.stats.rewriteCandidatesYielded}<br>
         Rule-index scans: ${result.stats.ruleIndexScans}<br>
+        _AllRewriteRules size: ${_AllRewriteRules.size}<br>
+        _AllRewriteRules lookups: ${result.stats.allRewriteRuleLookups}<br>
+        _AllRewriteRules hits: ${result.stats.allRewriteRuleHits}<br>
+        _AllRewriteRules misses: ${result.stats.allRewriteRuleMisses}<br>
+        _AllRewriteRules yielded candidates: ${result.stats.allRewriteRuleCandidatesYielded}<br>
         Debug proof history: ${_debugProofHistoryFlag ? 'on' : 'off'}<br>
         Tally rule rejects: ${result.stats.tallyRuleRejects}<br>
         Tally rule passes: ${result.stats.tallyRulePasses}<br>
@@ -766,6 +833,11 @@ function generateProofOptimized(axioms, proofStatement) {
 
         ruleIndexScans: 0,
 
+        allRewriteRuleLookups: 0,
+        allRewriteRuleHits: 0,
+        allRewriteRuleMisses: 0,
+        allRewriteRuleCandidatesYielded: 0,
+
         tallyRuleRejects: 0,
         tallyRulePasses: 0,
 
@@ -817,13 +889,14 @@ function generateProofOptimized(axioms, proofStatement) {
     }
 
     class SearchState {
-        constructor(expr, parent, rule, side, depth = 0, searchStrategy = _currentSearchStrategy.config) {
+        constructor(expr, parent, rule, side, depth = 0, searchStrategy = _currentSearchStrategy.config, rewriteRuleKey = null) {
             this.expr = expr;
             this.parent = parent;
             this.rule = rule || 'start';
             this.side = side;
             this.depth = depth;
             this.searchStrategy = searchStrategy;
+            this.rewriteRuleKey = rewriteRuleKey;
 
             this.canonicalExpr = _canonicalFormFlag ? canonicalize(expr) : expr;
             this.canonicalStr = exprKey(this.canonicalExpr);
@@ -913,19 +986,21 @@ function generateProofOptimized(axioms, proofStatement) {
         return null;
     }
 
-    function* generateRewrites(expr, side) {
+    function* generateRewrites(expr, side, preferredRuleIndex = -1) {
         const indexed = buildPositionIndexAndTally(expr);
         const positionIndex = indexed.positionIndex;
         const exprTally = indexed.tally;
+        const emittedRuleIDs = new Set();
         stats.positionIndexBuilds++;
 
-        const relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
-        stats.ruleIndexScans++;
+        function* emitRuleMatches(rule, fromAllRewriteRules) {
+            if (!rule || emittedRuleIDs.has(rule.ruleID)) return;
 
-        for (const rule of relevantRules) {
+            emittedRuleIDs.add(rule.ruleID);
+
             if (!tallyContainsRule(exprTally, expr.length, rule)) {
                 stats.tallyRuleRejects++;
-                continue;
+                return;
             }
 
             stats.tallyRulePasses++;
@@ -935,14 +1010,31 @@ function generateProofOptimized(axioms, proofStatement) {
                 const resultExpr = occurrence.resultExpr || replaceAt(expr, rule.from, occurrence.to, occurrence.position);
                 stats.rewriteCandidatesYielded++;
 
+                if (fromAllRewriteRules) {
+                    stats.allRewriteRuleCandidatesYielded++;
+                }
+
                 yield {
                     expr: resultExpr,
                     axiom: rule.axiomID,
                     direction: rule.direction,
                     method: occurrence.method,
-                    position: occurrence.position
+                    position: occurrence.position,
+                    ruleIndex: rule.ruleIndex
                 };
             }
+        }
+
+        if (preferredRuleIndex >= 0) {
+            const preferredRule = rewriteRuleIndex.getRuleByIndex(preferredRuleIndex);
+            yield* emitRuleMatches(preferredRule, true);
+        }
+
+        const relevantRules = rewriteRuleIndex.getRelevantRules(positionIndex);
+        stats.ruleIndexScans++;
+
+        for (const rule of relevantRules) {
+            yield* emitRuleMatches(rule, false);
         }
     }
 
@@ -970,13 +1062,29 @@ function generateProofOptimized(axioms, proofStatement) {
                 };
             }
             
-            for (const rewrite of generateRewrites(current.expr, side)) {
+            let currentRuleIndex = getAllRewriteRuleIndex(current.rewriteRuleKey);
+
+            if (current.rewriteRuleKey !== null) {
+                stats.allRewriteRuleLookups++;
+
+                if (currentRuleIndex >= 0) {
+                    stats.allRewriteRuleHits++;
+                } else {
+                    stats.allRewriteRuleMisses++;
+                }
+            }
+
+            for (const rewrite of generateRewrites(current.expr, side, currentRuleIndex)) {
+                const rewriteRuleKey = rememberAllRewriteRuleKey(rewrite.expr, side, rewrite.ruleIndex);
+
                 const newState = new SearchState(
                     rewrite.expr,
                     current,
                     `${rewrite.axiom} (${rewrite.direction})`,
                     side,
-                    current.depth + 1
+                    current.depth + 1,
+                    _currentSearchStrategy.config,
+                    rewriteRuleKey
                 );
                 
                 if (_debugProofHistoryFlag) {
